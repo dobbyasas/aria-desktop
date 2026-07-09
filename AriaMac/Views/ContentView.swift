@@ -134,10 +134,13 @@ struct ContentView: View {
                 } label: {
                     Label("Download Music", systemImage: "plus.circle")
                 }
-                .disabled(player.isDownloadStarting || player.downloadJob?.isActive == true)
 
-                if let downloadJob = player.downloadJob {
-                    SidebarDownloadStatus(job: downloadJob)
+                if !player.downloadQueue.isEmpty {
+                    SidebarDownloadStatus(
+                        activeItem: player.activeDownloadItem,
+                        totalETA: player.downloadQueueEstimatedRemaining,
+                        waitingCount: player.waitingDownloadCount
+                    )
                 }
 
                 Label(serverStatusTitle, systemImage: serverStatusImage)
@@ -1165,12 +1168,10 @@ struct DownloadMusicSheet: View {
     @State private var albumArtist = ""
     @State private var year = ""
 
-    private var canStartDownload: Bool {
+    private var canQueueDownload: Bool {
         !trimmed(link).isEmpty
         && !trimmed(album).isEmpty
         && !trimmed(albumArtist).isEmpty
-        && !player.isDownloadStarting
-        && player.downloadJob?.isActive != true
     }
 
     var body: some View {
@@ -1180,7 +1181,7 @@ struct DownloadMusicSheet: View {
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(Color.ariaTextPrimary)
 
-                Text("Runs the Fedora downloader and saves songs into the server songs folder.")
+                Text("Add albums to a queue. Aria downloads them one by one on the Fedora server.")
                     .font(.caption)
                     .foregroundStyle(Color.ariaTextSecondary)
             }
@@ -1193,16 +1194,35 @@ struct DownloadMusicSheet: View {
                 .overlay(Color.ariaDivider)
 
             Form {
-                Section("Download") {
+                Section("Add Album") {
                     TextField("Playlist / album link", text: $link)
                     TextField("Album name", text: $album)
                     TextField("Album artist", text: $albumArtist)
                     TextField("Year", text: $year)
                 }
 
-                if let downloadJob = player.downloadJob {
-                    Section("Progress") {
-                        DownloadProgressView(job: downloadJob)
+                Section("Queue") {
+                    if player.downloadQueue.isEmpty {
+                        Text("No albums queued yet.")
+                            .foregroundStyle(Color.ariaTextSecondary)
+                    } else {
+                        DownloadQueueSummaryView(
+                            activeItem: player.activeDownloadItem,
+                            totalETA: player.downloadQueueEstimatedRemaining,
+                            waitingCount: player.waitingDownloadCount
+                        )
+
+                        ForEach(player.downloadQueue) { item in
+                            DownloadQueueItemRow(item: item) {
+                                player.removeDownloadQueueItem(item)
+                            }
+                        }
+
+                        if player.downloadQueue.contains(where: { $0.isFinished }) {
+                            Button("Clear Finished") {
+                                player.clearFinishedDownloads()
+                            }
+                        }
                     }
                 }
 
@@ -1222,11 +1242,7 @@ struct DownloadMusicSheet: View {
                 .overlay(Color.ariaDivider)
 
             HStack(spacing: 10) {
-                Button(player.downloadJob?.isFinished == true ? "Close" : "Cancel") {
-                    if player.downloadJob?.isFinished == true {
-                        player.clearFinishedDownload()
-                    }
-
+                Button("Close") {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -1234,32 +1250,35 @@ struct DownloadMusicSheet: View {
                 Spacer()
 
                 Button {
-                    Task {
-                        await player.startDownload(
-                            link: link,
-                            album: album,
-                            albumArtist: albumArtist,
-                            year: year
-                        )
-                    }
+                    addCurrentAlbumToQueue()
                 } label: {
-                    if player.isDownloadStarting {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 80)
-                    } else {
-                        Text("Download")
-                    }
+                    Text("Add to Queue")
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .tint(Color.ariaAccent)
-                .disabled(!canStartDownload)
+                .disabled(!canQueueDownload)
             }
             .padding(18)
         }
-        .frame(width: 560, height: 620)
+        .frame(width: 620, height: 700)
         .background(Color.ariaBackground)
+    }
+
+    private func addCurrentAlbumToQueue() {
+        guard canQueueDownload else { return }
+
+        player.enqueueDownload(
+            link: link,
+            album: album,
+            albumArtist: albumArtist,
+            year: year
+        )
+
+        link = ""
+        album = ""
+        albumArtist = ""
+        year = ""
     }
 
     private func trimmed(_ value: String) -> String {
@@ -1267,117 +1286,201 @@ struct DownloadMusicSheet: View {
     }
 }
 
-struct DownloadProgressView: View {
-    let job: AriaDownloadJob
+struct DownloadQueueSummaryView: View {
+    let activeItem: DownloadQueueItem?
+    let totalETA: TimeInterval?
+    let waitingCount: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label(statusTitle, systemImage: statusImage)
+        HStack(spacing: 10) {
+            Label(summaryTitle, systemImage: "list.bullet.rectangle")
+                .foregroundStyle(Color.ariaTextSecondary)
+
+            Spacer()
+
+            Text(etaTitle)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(Color.ariaTextSecondary)
+        }
+    }
+
+    private var summaryTitle: String {
+        if activeItem != nil, waitingCount == 0 {
+            return "Downloading now"
+        }
+
+        if activeItem != nil {
+            return waitingCount == 1 ? "1 album waiting" : "\(waitingCount) albums waiting"
+        }
+
+        return waitingCount == 1 ? "1 album waiting" : "\(waitingCount) albums waiting"
+    }
+
+    private var etaTitle: String {
+        guard let totalETA else {
+            return "ETA estimating"
+        }
+
+        return "ETA \(downloadDurationText(totalETA))"
+    }
+}
+
+struct DownloadQueueItemRow: View {
+    let item: DownloadQueueItem
+    let onRemove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: statusImage)
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(statusColor)
+                    .frame(width: 22, height: 22)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.request.album)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.ariaTextPrimary)
+                        .lineLimit(1)
+
+                    Text(albumSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(Color.ariaTextSecondary)
+                        .lineLimit(1)
+                }
 
                 Spacer()
 
-                Text("\(Int(job.progressFraction * 100))%")
+                Text("\(Int(item.progressFraction * 100))%")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(Color.ariaTextSecondary)
+
+                if !item.isActive {
+                    Button {
+                        onRemove()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.ariaTextSecondary)
+                    .help("Remove")
+                }
             }
 
-            ProgressView(value: job.progressFraction)
+            ProgressView(value: item.progressFraction)
                 .progressViewStyle(.linear)
-                .tint(Color.ariaAccent)
+                .tint(statusColor)
 
-            Text(job.phase)
-                .font(.caption)
-                .foregroundStyle(Color.ariaTextSecondary)
+            HStack(spacing: 8) {
+                Text(item.statusTitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusColor)
 
-            if !job.message.isEmpty {
-                Text(job.message)
+                Text(item.detailText)
                     .font(.caption)
                     .foregroundStyle(Color.ariaTextSecondary)
-                    .lineLimit(2)
-            }
+                    .lineLimit(1)
 
-            if let newFiles = job.newFiles, job.isSuccessful {
-                Text("\(newFiles) new song\(newFiles == 1 ? "" : "s") added.")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.ariaAccent)
-            }
+                Spacer()
 
-            if let error = job.error {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(Color.orange)
-            }
-
-            if !job.outputTail.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(job.outputTail.suffix(5).enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(Color.ariaTextSecondary)
-                            .lineLimit(1)
-                    }
+                if let etaText {
+                    Text(etaText)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Color.ariaTextSecondary)
                 }
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.ariaPanelRaised.opacity(0.76))
-                )
             }
         }
-    }
-
-    private var statusTitle: String {
-        switch job.status {
-        case "succeeded":
-            "Done"
-        case "failed":
-            "Failed"
-        default:
-            "Downloading"
-        }
+        .padding(.vertical, 4)
     }
 
     private var statusImage: String {
-        switch job.status {
-        case "succeeded":
-            "checkmark.circle.fill"
-        case "failed":
-            "exclamationmark.triangle.fill"
-        default:
+        switch item.status {
+        case .waiting:
+            "clock"
+        case .starting:
+            "arrow.triangle.2.circlepath"
+        case .downloading:
             "arrow.down.circle.fill"
+        case .succeeded:
+            "checkmark.circle.fill"
+        case .failed:
+            "exclamationmark.triangle.fill"
         }
     }
 
     private var statusColor: Color {
-        switch job.status {
-        case "succeeded":
+        switch item.status {
+        case .waiting, .starting:
+            Color.ariaTextSecondary
+        case .downloading:
             Color.ariaAccent
-        case "failed":
+        case .succeeded:
+            Color.ariaAccent
+        case .failed:
             Color.orange
-        default:
-            Color.ariaTextPrimary
         }
+    }
+
+    private var albumSubtitle: String {
+        let yearText = item.request.year.isEmpty ? "" : " - \(item.request.year)"
+        return "\(item.request.albumArtist)\(yearText)"
+    }
+
+    private var etaText: String? {
+        guard let estimatedRemaining = item.estimatedRemaining else { return nil }
+        return "\(downloadDurationText(estimatedRemaining)) left"
     }
 }
 
 struct SidebarDownloadStatus: View {
-    let job: AriaDownloadJob
+    let activeItem: DownloadQueueItem?
+    let totalETA: TimeInterval?
+    let waitingCount: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label(job.isSuccessful ? "Download done" : job.phase, systemImage: job.isSuccessful ? "checkmark.circle.fill" : "arrow.down.circle.fill")
+            Label(statusTitle, systemImage: activeItem == nil ? "checkmark.circle.fill" : "arrow.down.circle.fill")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(job.isSuccessful ? Color.ariaAccent : Color.ariaTextSecondary)
+                .foregroundStyle(activeItem == nil ? Color.ariaAccent : Color.ariaTextSecondary)
                 .lineLimit(1)
 
-            ProgressView(value: job.progressFraction)
+            ProgressView(value: activeItem?.progressFraction ?? 1)
                 .progressViewStyle(.linear)
                 .tint(Color.ariaAccent)
+
+            if let totalETA {
+                Text("ETA \(downloadDurationText(totalETA))")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Color.ariaTextSecondary)
+            }
         }
         .padding(.vertical, 4)
     }
+
+    private var statusTitle: String {
+        if let activeItem {
+            let waitingSuffix = waitingCount > 0 ? " + \(waitingCount) queued" : ""
+            return "\(activeItem.statusTitle)\(waitingSuffix)"
+        }
+
+        return "Queue done"
+    }
+}
+
+private func downloadDurationText(_ seconds: TimeInterval) -> String {
+    let totalSeconds = max(0, Int(seconds.rounded()))
+    let hours = totalSeconds / 3600
+    let minutes = (totalSeconds % 3600) / 60
+
+    if hours > 0 {
+        return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+    }
+
+    if minutes > 0 {
+        return minutes == 1 ? "1 min" : "\(minutes) min"
+    }
+
+    return "less than 1 min"
 }
 
 struct InlineStatusBanner: View {

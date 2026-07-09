@@ -17,6 +17,87 @@ final class TrackMetadataEditorSession: ObservableObject, Identifiable {
     }
 }
 
+struct DownloadQueueItem: Identifiable {
+    enum Status {
+        case waiting
+        case starting
+        case downloading
+        case succeeded
+        case failed
+    }
+
+    let id = UUID()
+    var request: AriaDownloadRequest
+    var status: Status = .waiting
+    var job: AriaDownloadJob?
+    var errorMessage: String?
+    var queuedAt = Date()
+    var startedAt: Date?
+    var finishedAt: Date?
+    var estimatedRemaining: TimeInterval?
+
+    var progressFraction: Double {
+        switch status {
+        case .waiting:
+            0
+        case .starting:
+            max(job?.progressFraction ?? 0.04, 0.04)
+        case .downloading:
+            job?.progressFraction ?? 0.12
+        case .succeeded:
+            1
+        case .failed:
+            job?.progressFraction ?? 0
+        }
+    }
+
+    var isActive: Bool {
+        status == .starting || status == .downloading
+    }
+
+    var isFinished: Bool {
+        status == .succeeded || status == .failed
+    }
+
+    var statusTitle: String {
+        switch status {
+        case .waiting:
+            "Waiting"
+        case .starting:
+            "Starting"
+        case .downloading:
+            job?.phase ?? "Downloading"
+        case .succeeded:
+            "Done"
+        case .failed:
+            "Failed"
+        }
+    }
+
+    var detailText: String {
+        if let errorMessage {
+            return errorMessage
+        }
+
+        if let job, !job.message.isEmpty {
+            return job.message
+        }
+
+        switch status {
+        case .waiting:
+            return "Queued for download"
+        case .starting:
+            return "Starting on the Fedora server"
+        case .downloading:
+            return "Downloading on the Fedora server"
+        case .succeeded:
+            return "Saved to the server songs folder"
+        case .failed:
+            return "Download failed"
+        }
+    }
+}
+
 @MainActor
 final class MacPlayerViewModel: ObservableObject {
     @Published private(set) var catalog: [Track] = []
@@ -27,6 +108,7 @@ final class MacPlayerViewModel: ObservableObject {
     @Published private(set) var catalogErrorMessage: String?
     @Published private(set) var playbackErrorMessage: String?
     @Published private(set) var downloadJob: AriaDownloadJob?
+    @Published private(set) var downloadQueue: [DownloadQueueItem] = []
     @Published private(set) var isDownloadStarting = false
     @Published private(set) var downloadErrorMessage: String?
     @Published var currentTrack: Track?
@@ -261,7 +343,40 @@ final class MacPlayerViewModel: ObservableObject {
         playbackErrorMessage = nil
     }
 
-    func startDownload(link: String, album: String, albumArtist: String, year: String) async {
+    var activeDownloadItem: DownloadQueueItem? {
+        downloadQueue.first { $0.isActive }
+    }
+
+    var waitingDownloadCount: Int {
+        downloadQueue.filter { $0.status == .waiting }.count
+    }
+
+    var downloadQueueEstimatedRemaining: TimeInterval? {
+        let activeRemaining = activeDownloadItem?.estimatedRemaining ?? 0
+        let completedDurations = downloadQueue.compactMap { item -> TimeInterval? in
+            guard let startedAt = item.startedAt, let finishedAt = item.finishedAt, item.status == .succeeded else {
+                return nil
+            }
+
+            return finishedAt.timeIntervalSince(startedAt)
+        }
+
+        guard !completedDurations.isEmpty || activeRemaining > 0 else {
+            return nil
+        }
+
+        let averageDuration = completedDurations.isEmpty
+            ? nil
+            : completedDurations.reduce(0, +) / Double(completedDurations.count)
+
+        if waitingDownloadCount > 0, averageDuration == nil {
+            return nil
+        }
+
+        return activeRemaining + (averageDuration ?? 0) * Double(waitingDownloadCount)
+    }
+
+    func enqueueDownload(link: String, album: String, albumArtist: String, year: String) {
         let request = AriaDownloadRequest(
             link: link.trimmingCharacters(in: .whitespacesAndNewlines),
             album: album.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -269,22 +384,72 @@ final class MacPlayerViewModel: ObservableObject {
             year: year.trimmingCharacters(in: .whitespacesAndNewlines)
         )
 
+        downloadQueue.append(DownloadQueueItem(request: request))
+        downloadErrorMessage = nil
+        startNextQueuedDownloadIfNeeded()
+    }
+
+    func clearFinishedDownloads() {
+        downloadQueue.removeAll { $0.isFinished }
+
+        if downloadQueue.isEmpty {
+            downloadJob = nil
+            downloadErrorMessage = nil
+        }
+    }
+
+    func removeDownloadQueueItem(_ item: DownloadQueueItem) {
+        guard !item.isActive else { return }
+        downloadQueue.removeAll { $0.id == item.id }
+    }
+
+    private func startNextQueuedDownloadIfNeeded() {
+        guard activeDownloadItem == nil else { return }
+        guard let index = downloadQueue.firstIndex(where: { $0.status == .waiting }) else {
+            isDownloadStarting = false
+            return
+        }
+
+        let itemID = downloadQueue[index].id
+        let request = downloadQueue[index].request
+        downloadQueue[index].status = .starting
+        downloadQueue[index].startedAt = Date()
+        downloadQueue[index].estimatedRemaining = nil
         isDownloadStarting = true
         downloadErrorMessage = nil
 
+        Task { [weak self] in
+            await self?.startQueuedDownload(itemID: itemID, request: request)
+        }
+    }
+
+    private func startQueuedDownload(itemID: UUID, request: AriaDownloadRequest) async {
         do {
             let job = try await serverClient.startDownload(request)
+            updateDownloadQueueItem(id: itemID) { item in
+                item.status = .downloading
+                item.job = job
+                item.startedAt = item.startedAt ?? Date()
+                item.errorMessage = nil
+            }
             downloadJob = job
             isDownloadStarting = false
-            beginDownloadPolling(id: job.id)
+            beginDownloadPolling(id: job.id, itemID: itemID)
         } catch {
+            updateDownloadQueueItem(id: itemID) { item in
+                item.status = .failed
+                item.errorMessage = error.localizedDescription
+                item.finishedAt = Date()
+                item.estimatedRemaining = nil
+            }
             downloadErrorMessage = error.localizedDescription
             isDownloadStarting = false
+            startNextQueuedDownloadIfNeeded()
         }
     }
 
     func clearFinishedDownload() {
-        guard downloadJob?.isFinished == true else { return }
+        clearFinishedDownloads()
         downloadJob = nil
         downloadErrorMessage = nil
     }
@@ -352,7 +517,7 @@ final class MacPlayerViewModel: ObservableObject {
         return "This server does not expose per-song metadata loading yet, so Aria is using the catalog data already loaded."
     }
 
-    private func beginDownloadPolling(id: String) {
+    private func beginDownloadPolling(id: String, itemID: UUID) {
         downloadPollTask?.cancel()
         downloadPollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -363,19 +528,30 @@ final class MacPlayerViewModel: ObservableObject {
                 }
 
                 guard let self else { return }
-                await self.refreshDownloadStatus(id: id)
+                await self.refreshDownloadStatus(id: id, itemID: itemID)
 
-                if self.downloadJob?.isFinished == true {
+                if self.downloadQueue.first(where: { $0.id == itemID })?.isFinished == true {
                     return
                 }
             }
         }
     }
 
-    private func refreshDownloadStatus(id: String) async {
+    private func refreshDownloadStatus(id: String, itemID: UUID) async {
         do {
             let job = try await serverClient.fetchDownloadStatus(id: id)
             downloadJob = job
+            updateDownloadQueueItem(id: itemID) { item in
+                item.job = job
+                item.status = job.isFinished ? (job.isSuccessful ? .succeeded : .failed) : .downloading
+                item.errorMessage = job.error
+                item.estimatedRemaining = estimatedRemaining(for: item, job: job)
+
+                if job.isFinished {
+                    item.finishedAt = Date()
+                    item.estimatedRemaining = nil
+                }
+            }
 
             if job.isFinished {
                 downloadPollTask?.cancel()
@@ -383,10 +559,38 @@ final class MacPlayerViewModel: ObservableObject {
                 if job.isSuccessful {
                     await refreshCatalog()
                 }
+
+                startNextQueuedDownloadIfNeeded()
             }
         } catch {
             downloadErrorMessage = "Download status failed: \(error.localizedDescription)"
+            updateDownloadQueueItem(id: itemID) { item in
+                item.status = .failed
+                item.errorMessage = error.localizedDescription
+                item.finishedAt = Date()
+                item.estimatedRemaining = nil
+            }
+            downloadPollTask?.cancel()
+            startNextQueuedDownloadIfNeeded()
         }
+    }
+
+    private func updateDownloadQueueItem(id: UUID, update: (inout DownloadQueueItem) -> Void) {
+        guard let index = downloadQueue.firstIndex(where: { $0.id == id }) else { return }
+        update(&downloadQueue[index])
+    }
+
+    private func estimatedRemaining(for item: DownloadQueueItem, job: AriaDownloadJob) -> TimeInterval? {
+        let progress = job.progressFraction
+        guard job.isActive, progress > 0.05, progress < 0.995 else {
+            return nil
+        }
+
+        guard let startedAt = item.startedAt else { return nil }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        guard elapsed > 3 else { return nil }
+
+        return max(0, elapsed * (1 - progress) / progress)
     }
 
     private func metadataSaveErrorMessage(for error: Error) -> String {

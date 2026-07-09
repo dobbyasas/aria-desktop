@@ -16,7 +16,7 @@ This first Mac version includes:
 - paged loading from `/api/tracks`
 - songs, albums, playlists, and queue sections
 - album cards open an album detail page before playback
-- server-side song downloads with progress from the sidebar
+- queued server-side album downloads with progress and ETA from the sidebar
 - AVPlayer playback
 - shuffle that mutates the queue
 - repeat modes
