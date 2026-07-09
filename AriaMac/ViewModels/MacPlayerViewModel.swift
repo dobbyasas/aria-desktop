@@ -26,6 +26,9 @@ final class MacPlayerViewModel: ObservableObject {
     @Published private(set) var isCatalogLoading = false
     @Published private(set) var catalogErrorMessage: String?
     @Published private(set) var playbackErrorMessage: String?
+    @Published private(set) var downloadJob: AriaDownloadJob?
+    @Published private(set) var isDownloadStarting = false
+    @Published private(set) var downloadErrorMessage: String?
     @Published var currentTrack: Track?
     @Published var elapsed: TimeInterval = 0
     @Published var isPlaying = false
@@ -43,6 +46,7 @@ final class MacPlayerViewModel: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
     private var timer: AnyCancellable?
+    private var downloadPollTask: Task<Void, Never>?
     private var orderedQueue: [Track] = []
 
     init(serverClient: AriaServerClient = AriaServerClient()) {
@@ -63,6 +67,7 @@ final class MacPlayerViewModel: ObservableObject {
         }
 
         timer?.cancel()
+        downloadPollTask?.cancel()
     }
 
     var progress: Double {
@@ -256,6 +261,34 @@ final class MacPlayerViewModel: ObservableObject {
         playbackErrorMessage = nil
     }
 
+    func startDownload(link: String, album: String, albumArtist: String, year: String) async {
+        let request = AriaDownloadRequest(
+            link: link.trimmingCharacters(in: .whitespacesAndNewlines),
+            album: album.trimmingCharacters(in: .whitespacesAndNewlines),
+            albumArtist: albumArtist.trimmingCharacters(in: .whitespacesAndNewlines),
+            year: year.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        isDownloadStarting = true
+        downloadErrorMessage = nil
+
+        do {
+            let job = try await serverClient.startDownload(request)
+            downloadJob = job
+            isDownloadStarting = false
+            beginDownloadPolling(id: job.id)
+        } catch {
+            downloadErrorMessage = error.localizedDescription
+            isDownloadStarting = false
+        }
+    }
+
+    func clearFinishedDownload() {
+        guard downloadJob?.isFinished == true else { return }
+        downloadJob = nil
+        downloadErrorMessage = nil
+    }
+
     func editMetadata(for track: Track) {
         metadataEditorSession = TrackMetadataEditorSession(track: freshestVersion(of: track))
     }
@@ -317,6 +350,43 @@ final class MacPlayerViewModel: ObservableObject {
         }
 
         return "This server does not expose per-song metadata loading yet, so Aria is using the catalog data already loaded."
+    }
+
+    private func beginDownloadPolling(id: String) {
+        downloadPollTask?.cancel()
+        downloadPollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 1_250_000_000)
+                } catch {
+                    return
+                }
+
+                guard let self else { return }
+                await self.refreshDownloadStatus(id: id)
+
+                if self.downloadJob?.isFinished == true {
+                    return
+                }
+            }
+        }
+    }
+
+    private func refreshDownloadStatus(id: String) async {
+        do {
+            let job = try await serverClient.fetchDownloadStatus(id: id)
+            downloadJob = job
+
+            if job.isFinished {
+                downloadPollTask?.cancel()
+
+                if job.isSuccessful {
+                    await refreshCatalog()
+                }
+            }
+        } catch {
+            downloadErrorMessage = "Download status failed: \(error.localizedDescription)"
+        }
     }
 
     private func metadataSaveErrorMessage(for error: Error) -> String {

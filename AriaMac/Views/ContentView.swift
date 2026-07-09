@@ -38,7 +38,9 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @EnvironmentObject private var player: MacPlayerViewModel
     @State private var selectedSection: LibrarySection = .songs
+    @State private var selectedAlbumID: String?
     @State private var searchText = ""
+    @State private var isDownloadSheetPresented = false
 
     private var activeSection: LibrarySection {
         selectedSection
@@ -96,6 +98,10 @@ struct ContentView: View {
                     .environmentObject(player)
             }
         }
+        .sheet(isPresented: $isDownloadSheetPresented) {
+            DownloadMusicSheet()
+                .environmentObject(player)
+        }
     }
 
     private var sidebar: some View {
@@ -104,6 +110,9 @@ struct ContentView: View {
                 ForEach(LibrarySection.allCases) { section in
                     Button {
                         selectedSection = section
+                        if section != .albums {
+                            selectedAlbumID = nil
+                        }
                     } label: {
                         SidebarNavigationRow(
                             section: section,
@@ -120,6 +129,17 @@ struct ContentView: View {
             }
 
             Section("Server") {
+                Button {
+                    isDownloadSheetPresented = true
+                } label: {
+                    Label("Download Music", systemImage: "plus.circle")
+                }
+                .disabled(player.isDownloadStarting || player.downloadJob?.isActive == true)
+
+                if let downloadJob = player.downloadJob {
+                    SidebarDownloadStatus(job: downloadJob)
+                }
+
                 Label(serverStatusTitle, systemImage: serverStatusImage)
                     .foregroundStyle(serverStatusColor)
             }
@@ -214,7 +234,15 @@ struct ContentView: View {
             case .songs:
                 SongsView(tracks: filteredTracks, isSearching: isSearching)
             case .albums:
-                AlbumsView(albums: filteredAlbums, isSearching: isSearching)
+                if let selectedAlbum {
+                    MacAlbumDetailView(album: selectedAlbum) {
+                        selectedAlbumID = nil
+                    }
+                } else {
+                    AlbumsView(albums: filteredAlbums, isSearching: isSearching) { album in
+                        selectedAlbumID = album.id
+                    }
+                }
             case .playlists:
                 PlaylistsView(playlists: player.playlists)
             case .queue:
@@ -241,6 +269,11 @@ struct ContentView: View {
             let text = "\(album.title) \(album.artist)".localizedLowercase
             return tokens.allSatisfy { text.contains($0) }
         }
+    }
+
+    private var selectedAlbum: AriaAlbum? {
+        guard let selectedAlbumID else { return nil }
+        return player.albums.first { $0.id == selectedAlbumID }
     }
 
     private var subtitle: String {
@@ -357,6 +390,7 @@ struct SongsView: View {
 struct AlbumsView: View {
     let albums: [AriaAlbum]
     let isSearching: Bool
+    let onOpenAlbum: (AriaAlbum) -> Void
 
     private let columns = [
         GridItem(.adaptive(minimum: 174, maximum: 220), spacing: 16)
@@ -374,13 +408,124 @@ struct AlbumsView: View {
             ScrollView {
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
                     ForEach(albums) { album in
-                        AlbumCard(album: album)
+                        AlbumCard(album: album, onOpen: onOpenAlbum)
                     }
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
             }
         }
+    }
+}
+
+struct MacAlbumDetailView: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+
+    let album: AriaAlbum
+    let onBack: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Button {
+                    onBack()
+                } label: {
+                    Label("Albums", systemImage: "chevron.left")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.ariaTextSecondary)
+
+                albumHeader
+
+                VStack(spacing: 0) {
+                    TrackListHeader(showAlbum: false)
+
+                    LazyVStack(spacing: 2) {
+                        ForEach(Array(album.tracks.enumerated()), id: \.element.id) { index, track in
+                            TrackRow(
+                                track: track,
+                                source: album.tracks,
+                                index: index + 1,
+                                showAlbum: false
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private var albumHeader: some View {
+        HStack(spacing: 20) {
+            if let artworkTrack = album.artworkTrack {
+                ArtworkView(track: artworkTrack, size: 148, cornerRadius: 10)
+                    .shadow(color: .black.opacity(0.24), radius: 16, x: 0, y: 10)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Album")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.ariaAccent)
+                    .textCase(.uppercase)
+
+                Text(album.title)
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundStyle(Color.ariaTextPrimary)
+                    .lineLimit(2)
+
+                Text(albumSubtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.ariaTextSecondary)
+
+                HStack(spacing: 10) {
+                    Button {
+                        playAlbum()
+                    } label: {
+                        Label("Play Album", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.ariaAccent)
+
+                    Button {
+                        shuffleAlbum()
+                    } label: {
+                        Label("Shuffle", systemImage: "shuffle")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(album.tracks.isEmpty)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.ariaSurface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.ariaDivider, lineWidth: 1)
+                )
+        )
+    }
+
+    private var albumSubtitle: String {
+        let yearText = album.year > 0 ? "\(album.year) - " : ""
+        let countText = album.tracks.count == 1 ? "1 song" : "\(album.tracks.count) songs"
+        return "\(album.artist) - \(yearText)\(countText) - \(album.duration.ariaDurationText)"
+    }
+
+    private func playAlbum() {
+        guard let firstTrack = album.tracks.first else { return }
+        player.play(firstTrack, from: album.tracks)
+    }
+
+    private func shuffleAlbum() {
+        let shuffledTracks = album.tracks.shuffled()
+        guard let firstTrack = shuffledTracks.first else { return }
+        player.play(firstTrack, from: shuffledTracks)
     }
 }
 
@@ -775,12 +920,11 @@ struct AlbumCard: View {
     @EnvironmentObject private var player: MacPlayerViewModel
 
     let album: AriaAlbum
+    let onOpen: (AriaAlbum) -> Void
 
     var body: some View {
         Button {
-            if let firstTrack = album.tracks.first {
-                player.play(firstTrack, from: album.tracks)
-            }
+            onOpen(album)
         } label: {
             VStack(alignment: .leading, spacing: 11) {
                 if let artworkTrack = album.artworkTrack {
@@ -1010,6 +1154,229 @@ struct MetadataEditorSheet: View {
         }
         .frame(width: 560, height: 640)
         .background(Color.ariaBackground)
+    }
+}
+
+struct DownloadMusicSheet: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var link = ""
+    @State private var album = ""
+    @State private var albumArtist = ""
+    @State private var year = ""
+
+    private var canStartDownload: Bool {
+        !trimmed(link).isEmpty
+        && !trimmed(album).isEmpty
+        && !trimmed(albumArtist).isEmpty
+        && !player.isDownloadStarting
+        && player.downloadJob?.isActive != true
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Download Music")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(Color.ariaTextPrimary)
+
+                Text("Runs the Fedora downloader and saves songs into the server songs folder.")
+                    .font(.caption)
+                    .foregroundStyle(Color.ariaTextSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 22)
+            .padding(.top, 22)
+            .padding(.bottom, 14)
+
+            Divider()
+                .overlay(Color.ariaDivider)
+
+            Form {
+                Section("Download") {
+                    TextField("Playlist / album link", text: $link)
+                    TextField("Album name", text: $album)
+                    TextField("Album artist", text: $albumArtist)
+                    TextField("Year", text: $year)
+                }
+
+                if let downloadJob = player.downloadJob {
+                    Section("Progress") {
+                        DownloadProgressView(job: downloadJob)
+                    }
+                }
+
+                if let error = player.downloadErrorMessage {
+                    Section("Problem") {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Color.orange)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .padding(.horizontal, 14)
+            .padding(.top, 4)
+
+            Divider()
+                .overlay(Color.ariaDivider)
+
+            HStack(spacing: 10) {
+                Button(player.downloadJob?.isFinished == true ? "Close" : "Cancel") {
+                    if player.downloadJob?.isFinished == true {
+                        player.clearFinishedDownload()
+                    }
+
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button {
+                    Task {
+                        await player.startDownload(
+                            link: link,
+                            album: album,
+                            albumArtist: albumArtist,
+                            year: year
+                        )
+                    }
+                } label: {
+                    if player.isDownloadStarting {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 80)
+                    } else {
+                        Text("Download")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .tint(Color.ariaAccent)
+                .disabled(!canStartDownload)
+            }
+            .padding(18)
+        }
+        .frame(width: 560, height: 620)
+        .background(Color.ariaBackground)
+    }
+
+    private func trimmed(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct DownloadProgressView: View {
+    let job: AriaDownloadJob
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label(statusTitle, systemImage: statusImage)
+                    .foregroundStyle(statusColor)
+
+                Spacer()
+
+                Text("\(Int(job.progressFraction * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(Color.ariaTextSecondary)
+            }
+
+            ProgressView(value: job.progressFraction)
+                .progressViewStyle(.linear)
+                .tint(Color.ariaAccent)
+
+            Text(job.phase)
+                .font(.caption)
+                .foregroundStyle(Color.ariaTextSecondary)
+
+            if !job.message.isEmpty {
+                Text(job.message)
+                    .font(.caption)
+                    .foregroundStyle(Color.ariaTextSecondary)
+                    .lineLimit(2)
+            }
+
+            if let newFiles = job.newFiles, job.isSuccessful {
+                Text("\(newFiles) new song\(newFiles == 1 ? "" : "s") added.")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.ariaAccent)
+            }
+
+            if let error = job.error {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(Color.orange)
+            }
+
+            if !job.outputTail.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(job.outputTail.suffix(5).enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(Color.ariaTextSecondary)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.ariaPanelRaised.opacity(0.76))
+                )
+            }
+        }
+    }
+
+    private var statusTitle: String {
+        switch job.status {
+        case "succeeded":
+            "Done"
+        case "failed":
+            "Failed"
+        default:
+            "Downloading"
+        }
+    }
+
+    private var statusImage: String {
+        switch job.status {
+        case "succeeded":
+            "checkmark.circle.fill"
+        case "failed":
+            "exclamationmark.triangle.fill"
+        default:
+            "arrow.down.circle.fill"
+        }
+    }
+
+    private var statusColor: Color {
+        switch job.status {
+        case "succeeded":
+            Color.ariaAccent
+        case "failed":
+            Color.orange
+        default:
+            Color.ariaTextPrimary
+        }
+    }
+}
+
+struct SidebarDownloadStatus: View {
+    let job: AriaDownloadJob
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(job.isSuccessful ? "Download done" : job.phase, systemImage: job.isSuccessful ? "checkmark.circle.fill" : "arrow.down.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(job.isSuccessful ? Color.ariaAccent : Color.ariaTextSecondary)
+                .lineLimit(1)
+
+            ProgressView(value: job.progressFraction)
+                .progressViewStyle(.linear)
+                .tint(Color.ariaAccent)
+        }
+        .padding(.vertical, 4)
     }
 }
 

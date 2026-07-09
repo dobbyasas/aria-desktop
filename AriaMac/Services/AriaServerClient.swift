@@ -111,6 +111,42 @@ struct AriaServerClient {
         throw AriaServerError.unreachable(failures)
     }
 
+    func startDownload(_ request: AriaDownloadRequest) async throws -> AriaDownloadJob {
+        let body = try JSONEncoder().encode(request)
+        var failures: [String] = []
+
+        for baseURL in baseURLs {
+            do {
+                let (data, _) = try await sendRequest(
+                    to: downloadsEndpoint(baseURL: baseURL),
+                    method: "POST",
+                    body: body,
+                    contentType: "application/json"
+                )
+                return try decodeDownloadJob(from: data)
+            } catch {
+                failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+
+        throw AriaServerError.unreachable(failures)
+    }
+
+    func fetchDownloadStatus(id: String) async throws -> AriaDownloadJob {
+        var failures: [String] = []
+
+        for baseURL in baseURLs {
+            do {
+                let (data, _) = try await sendRequest(to: downloadStatusEndpoint(id: id, baseURL: baseURL), method: "GET")
+                return try decodeDownloadJob(from: data)
+            } catch {
+                failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+
+        throw AriaServerError.unreachable(failures)
+    }
+
     private func fetchTrackPage(offset: Int, limit: Int, baseURL: URL) async throws -> TracksPage {
         var components = URLComponents(
             url: tracksEndpoint(baseURL: baseURL),
@@ -197,6 +233,14 @@ struct AriaServerClient {
         )
     }
 
+    private func decodeDownloadJob(from data: Data) throws -> AriaDownloadJob {
+        do {
+            return try JSONDecoder().decode(AriaDownloadJob.self, from: data)
+        } catch {
+            throw AriaServerError.decoding(error)
+        }
+    }
+
     private func trackEndpoint(for track: Track, baseURL: URL) -> URL {
         tracksEndpoint(baseURL: baseURL).appendingPathComponent(track.serverID ?? track.id.uuidString)
     }
@@ -207,6 +251,16 @@ struct AriaServerClient {
             .reduce(baseURL) { url, component in
                 url.appendingPathComponent(String(component))
             }
+    }
+
+    private func downloadsEndpoint(baseURL: URL) -> URL {
+        baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("downloads")
+    }
+
+    private func downloadStatusEndpoint(id: String, baseURL: URL) -> URL {
+        downloadsEndpoint(baseURL: baseURL).appendingPathComponent(id)
     }
 
     private static let defaultBaseURLs = [
@@ -224,6 +278,44 @@ struct AriaServerClient {
             seen.insert(key)
             return true
         }
+    }
+}
+
+struct AriaDownloadRequest: Encodable {
+    var link: String
+    var album: String
+    var albumArtist: String
+    var year: String
+}
+
+struct AriaDownloadJob: Decodable, Identifiable, Equatable {
+    var id: String
+    var status: String
+    var phase: String
+    var message: String
+    var progress: Double
+    var album: String
+    var albumArtist: String
+    var year: String
+    var filesStarted: Int
+    var newFiles: Int?
+    var error: String?
+    var outputTail: [String]
+
+    var isActive: Bool {
+        status == "queued" || status == "running"
+    }
+
+    var isFinished: Bool {
+        status == "succeeded" || status == "failed"
+    }
+
+    var isSuccessful: Bool {
+        status == "succeeded"
+    }
+
+    var progressFraction: Double {
+        min(max(progress, 0), 1)
     }
 }
 
