@@ -3,10 +3,12 @@
 A standalone macOS SwiftUI version of Aria.
 
 Open `AriaMac.xcodeproj`, build the `AriaMac` scheme, and run it on macOS.
-The app currently connects to the same song server as the iPhone app:
+The app currently connects to the same song server as the iPhone app. It tries
+Tailscale first, then falls back to the local Wi-Fi address:
 
 ```text
 http://100.93.250.104:8000
+http://192.168.0.16:8000
 ```
 
 This first Mac version includes:

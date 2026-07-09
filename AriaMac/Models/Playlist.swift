@@ -21,7 +21,7 @@ struct AriaAlbum: Identifiable, Hashable {
     var tracks: [Track]
 
     var id: String {
-        "\(artist)-\(title)"
+        title.localizedLowercase
     }
 
     var artworkTrack: Track? {

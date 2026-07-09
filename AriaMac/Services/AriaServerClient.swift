@@ -1,24 +1,38 @@
 import Foundation
 
 struct AriaServerClient {
-    var baseURL: URL
+    var baseURLs: [URL]
     var tracksPath: String
 
     init(
-        baseURL: URL = URL(string: "http://100.93.250.104:8000")!,
+        baseURLs: [URL] = Self.defaultBaseURLs,
         tracksPath: String = "api/tracks"
     ) {
-        self.baseURL = baseURL
+        self.baseURLs = Self.unique(baseURLs)
         self.tracksPath = tracksPath
     }
 
     func fetchTracks(pageSize: Int = 250) async throws -> [Track] {
+        var failures: [String] = []
+
+        for baseURL in baseURLs {
+            do {
+                return try await fetchTracks(from: baseURL, pageSize: pageSize)
+            } catch {
+                failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+
+        throw AriaServerError.unreachable(failures)
+    }
+
+    private func fetchTracks(from baseURL: URL, pageSize: Int) async throws -> [Track] {
         var offset = 0
         var tracks: [Track] = []
         var seenPageSignatures = Set<String>()
 
         while true {
-            let page = try await fetchTrackPage(offset: offset, limit: pageSize)
+            let page = try await fetchTrackPage(offset: offset, limit: pageSize, baseURL: baseURL)
             let pageSignature = page.identitySignature
 
             guard !seenPageSignatures.contains(pageSignature) else {
@@ -43,42 +57,63 @@ struct AriaServerClient {
     }
 
     func fetchTrackMetadata(for track: Track) async throws -> Track {
-        let (data, _) = try await sendRequest(to: trackEndpoint(for: track), method: "GET")
-        return try decodeTrack(from: data, fallback: track)
+        var failures: [String] = []
+
+        for baseURL in baseURLs {
+            do {
+                let (data, _) = try await sendRequest(to: trackEndpoint(for: track, baseURL: baseURL), method: "GET")
+                return try decodeTrack(from: data, fallback: track, baseURL: baseURL)
+            } catch {
+                failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+
+        throw AriaServerError.unreachable(failures)
     }
 
     func updateTrackMetadata(for track: Track, metadata: TrackMetadataUpdate) async throws -> Track {
         let body = try JSONEncoder().encode(metadata)
-        let endpoint = trackEndpoint(for: track)
-        var firstError: Error?
+        var failures: [String] = []
 
-        for method in ["PATCH", "PUT"] {
-            do {
-                let (data, response) = try await sendRequest(
-                    to: endpoint,
-                    method: method,
-                    body: body,
-                    contentType: "application/json"
-                )
+        for baseURL in baseURLs {
+            let endpoint = trackEndpoint(for: track, baseURL: baseURL)
+            var firstError: Error?
 
-                let fallback = metadata.applying(to: track, resolvingAgainst: baseURL)
-                guard !data.isEmpty, response.statusCode != 204 else {
-                    return fallback
+            for method in ["PATCH", "PUT"] {
+                do {
+                    let (data, response) = try await sendRequest(
+                        to: endpoint,
+                        method: method,
+                        body: body,
+                        contentType: "application/json"
+                    )
+
+                    let fallback = metadata.applying(to: track, resolvingAgainst: baseURL)
+                    guard !data.isEmpty, response.statusCode != 204 else {
+                        return fallback
+                    }
+
+                    return try decodeTrack(from: data, fallback: fallback, baseURL: baseURL)
+                } catch AriaServerError.badStatus(let statusCode) where [404, 405, 501].contains(statusCode) {
+                    firstError = firstError ?? AriaServerError.badStatus(statusCode)
+                    continue
+                } catch {
+                    firstError = firstError ?? error
+                    break
                 }
+            }
 
-                return try decodeTrack(from: data, fallback: fallback)
-            } catch AriaServerError.badStatus(let statusCode) where [404, 405, 501].contains(statusCode) {
-                firstError = firstError ?? AriaServerError.badStatus(statusCode)
-                continue
+            if let firstError {
+                failures.append("\(baseURL.absoluteString): \(firstError.localizedDescription)")
             }
         }
 
-        throw firstError ?? AriaServerError.invalidResponse
+        throw AriaServerError.unreachable(failures)
     }
 
-    private func fetchTrackPage(offset: Int, limit: Int) async throws -> TracksPage {
+    private func fetchTrackPage(offset: Int, limit: Int, baseURL: URL) async throws -> TracksPage {
         var components = URLComponents(
-            url: tracksEndpoint,
+            url: tracksEndpoint(baseURL: baseURL),
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = [
@@ -137,7 +172,7 @@ struct AriaServerClient {
         return (data, httpResponse)
     }
 
-    private func decodeTrack(from data: Data, fallback: Track) throws -> Track {
+    private func decodeTrack(from data: Data, fallback: Track, baseURL: URL) throws -> Track {
         let decoder = JSONDecoder()
 
         if let payload = try? decoder.decode(ServerTrackPayload.self, from: data) {
@@ -162,16 +197,33 @@ struct AriaServerClient {
         )
     }
 
-    private func trackEndpoint(for track: Track) -> URL {
-        tracksEndpoint.appendingPathComponent(track.serverID ?? track.id.uuidString)
+    private func trackEndpoint(for track: Track, baseURL: URL) -> URL {
+        tracksEndpoint(baseURL: baseURL).appendingPathComponent(track.serverID ?? track.id.uuidString)
     }
 
-    private var tracksEndpoint: URL {
+    private func tracksEndpoint(baseURL: URL) -> URL {
         tracksPath
             .split(separator: "/")
             .reduce(baseURL) { url, component in
                 url.appendingPathComponent(String(component))
             }
+    }
+
+    private static let defaultBaseURLs = [
+        URL(string: "http://100.93.250.104:8000")!,
+        URL(string: "http://192.168.0.16:8000")!
+    ]
+
+    private static func unique(_ urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+
+        return urls.filter { url in
+            let key = url.absoluteString
+            guard !seen.contains(key) else { return false }
+
+            seen.insert(key)
+            return true
+        }
     }
 }
 
@@ -278,6 +330,7 @@ enum AriaServerError: LocalizedError {
     case badStatus(Int)
     case emptyCatalog
     case decoding(Error)
+    case unreachable([String])
 
     var errorDescription: String? {
         switch self {
@@ -291,6 +344,8 @@ enum AriaServerError: LocalizedError {
             "The song server did not find any songs."
         case .decoding(let error):
             "The song server response could not be read: \(error.localizedDescription)"
+        case .unreachable(let failures):
+            "Tried \(failures.joined(separator: "\n"))"
         }
     }
 }

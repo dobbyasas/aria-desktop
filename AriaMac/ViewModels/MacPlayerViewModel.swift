@@ -550,7 +550,7 @@ final class MacPlayerViewModel: ObservableObject {
 
     private static func albums(from catalog: [Track]) -> [AriaAlbum] {
         Dictionary(grouping: catalog) { track in
-            "\(track.artist.localizedLowercase)-\(track.album.localizedLowercase)"
+            track.album.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
         }
         .values
         .compactMap { tracks in
@@ -559,8 +559,8 @@ final class MacPlayerViewModel: ObservableObject {
 
             return AriaAlbum(
                 title: firstTrack.album,
-                artist: firstTrack.artist,
-                year: firstTrack.year,
+                artist: displayArtist(for: sortedTracks),
+                year: sortedTracks.compactMap { $0.year > 0 ? $0.year : nil }.min() ?? 0,
                 tracks: sortedTracks
             )
         }
@@ -576,6 +576,31 @@ final class MacPlayerViewModel: ObservableObject {
 
             return firstAlbum.title.localizedCaseInsensitiveCompare(secondAlbum.title) == .orderedAscending
         }
+    }
+
+    private static func displayArtist(for tracks: [Track]) -> String {
+        let artistCounts = Dictionary(grouping: tracks) { track in
+            track.artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        .mapValues(\.count)
+        .filter { !$0.key.isEmpty }
+
+        guard let mostCommon = artistCounts.max(by: { first, second in
+            if first.value == second.value {
+                return first.key.localizedCaseInsensitiveCompare(second.key) == .orderedDescending
+            }
+
+            return first.value < second.value
+        }) else {
+            return "Unknown Artist"
+        }
+
+        let competingArtistCount = artistCounts
+            .filter { $0.key != mostCommon.key }
+            .map(\.value)
+            .max() ?? 0
+
+        return mostCommon.value > competingArtistCount ? mostCommon.key : "Various Artists"
     }
 
     private static func playlists(from tracks: [Track]) -> [AriaPlaylist] {
