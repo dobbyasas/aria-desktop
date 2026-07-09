@@ -1,0 +1,410 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5B0001012D00000000000001 /* AriaMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002012D00000000000001 /* AriaMacApp.swift */; };
+		5B0001022D00000000000001 /* Track.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002022D00000000000001 /* Track.swift */; };
+		5B0001032D00000000000001 /* Playlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002032D00000000000001 /* Playlist.swift */; };
+		5B0001042D00000000000001 /* AriaServerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002042D00000000000001 /* AriaServerClient.swift */; };
+		5B0001052D00000000000001 /* AriaArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002052D00000000000001 /* AriaArtworkCache.swift */; };
+		5B0001062D00000000000001 /* MacPlayerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002062D00000000000001 /* MacPlayerViewModel.swift */; };
+		5B0001072D00000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002072D00000000000001 /* ContentView.swift */; };
+		5B0001082D00000000000001 /* ArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002082D00000000000001 /* ArtworkView.swift */; };
+		5B0001092D00000000000001 /* PlayerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002092D00000000000001 /* PlayerBar.swift */; };
+		5B0001102D00000000000001 /* TimeFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002102D00000000000001 /* TimeFormatting.swift */; };
+		5B0001112D00000000000001 /* Color+Aria.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002112D00000000000001 /* Color+Aria.swift */; };
+		5B0001122D00000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5B0002122D00000000000001 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		5B0000012D00000000000001 /* AriaMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AriaMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5B0002012D00000000000001 /* AriaMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AriaMacApp.swift; sourceTree = "<group>"; };
+		5B0002022D00000000000001 /* Track.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Track.swift; sourceTree = "<group>"; };
+		5B0002032D00000000000001 /* Playlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Playlist.swift; sourceTree = "<group>"; };
+		5B0002042D00000000000001 /* AriaServerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AriaServerClient.swift; sourceTree = "<group>"; };
+		5B0002052D00000000000001 /* AriaArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AriaArtworkCache.swift; sourceTree = "<group>"; };
+		5B0002062D00000000000001 /* MacPlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPlayerViewModel.swift; sourceTree = "<group>"; };
+		5B0002072D00000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		5B0002082D00000000000001 /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
+		5B0002092D00000000000001 /* PlayerBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerBar.swift; sourceTree = "<group>"; };
+		5B0002102D00000000000001 /* TimeFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeFormatting.swift; sourceTree = "<group>"; };
+		5B0002112D00000000000001 /* Color+Aria.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Aria.swift"; sourceTree = "<group>"; };
+		5B0002122D00000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		5B0002132D00000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5B0003012D00000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5B0004012D00000000000001 = {
+			isa = PBXGroup;
+			children = (
+				5B0004022D00000000000001 /* AriaMac */,
+				5B0004032D00000000000001 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5B0004022D00000000000001 /* AriaMac */ = {
+			isa = PBXGroup;
+			children = (
+				5B0002132D00000000000001 /* Info.plist */,
+				5B0002122D00000000000001 /* Assets.xcassets */,
+				5B0004042D00000000000001 /* App */,
+				5B0004052D00000000000001 /* Models */,
+				5B0004062D00000000000001 /* Services */,
+				5B0004072D00000000000001 /* ViewModels */,
+				5B0004082D00000000000001 /* Views */,
+				5B0004092D00000000000001 /* Support */,
+			);
+			path = AriaMac;
+			sourceTree = "<group>";
+		};
+		5B0004032D00000000000001 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5B0000012D00000000000001 /* AriaMac.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5B0004042D00000000000001 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				5B0002012D00000000000001 /* AriaMacApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		5B0004052D00000000000001 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				5B0002022D00000000000001 /* Track.swift */,
+				5B0002032D00000000000001 /* Playlist.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		5B0004062D00000000000001 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				5B0002042D00000000000001 /* AriaServerClient.swift */,
+				5B0002052D00000000000001 /* AriaArtworkCache.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		5B0004072D00000000000001 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				5B0002062D00000000000001 /* MacPlayerViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		5B0004082D00000000000001 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				5B0002072D00000000000001 /* ContentView.swift */,
+				5B0002082D00000000000001 /* ArtworkView.swift */,
+				5B0002092D00000000000001 /* PlayerBar.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		5B0004092D00000000000001 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				5B0002102D00000000000001 /* TimeFormatting.swift */,
+				5B0002112D00000000000001 /* Color+Aria.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5B0005012D00000000000001 /* AriaMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5B0008012D00000000000001 /* Build configuration list for PBXNativeTarget "AriaMac" */;
+			buildPhases = (
+				5B0006012D00000000000001 /* Sources */,
+				5B0003012D00000000000001 /* Frameworks */,
+				5B0006022D00000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AriaMac;
+			productName = AriaMac;
+			productReference = 5B0000012D00000000000001 /* AriaMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5B0007012D00000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1700;
+				LastUpgradeCheck = 1700;
+				TargetAttributes = {
+					5B0005012D00000000000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = 5B0009012D00000000000001 /* Build configuration list for PBXProject "AriaMac" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5B0004012D00000000000001;
+			productRefGroup = 5B0004032D00000000000001 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5B0005012D00000000000001 /* AriaMac */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5B0006022D00000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B0001122D00000000000001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5B0006012D00000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B0001012D00000000000001 /* AriaMacApp.swift in Sources */,
+				5B0001022D00000000000001 /* Track.swift in Sources */,
+				5B0001032D00000000000001 /* Playlist.swift in Sources */,
+				5B0001042D00000000000001 /* AriaServerClient.swift in Sources */,
+				5B0001052D00000000000001 /* AriaArtworkCache.swift in Sources */,
+				5B0001062D00000000000001 /* MacPlayerViewModel.swift in Sources */,
+				5B0001072D00000000000001 /* ContentView.swift in Sources */,
+				5B0001082D00000000000001 /* ArtworkView.swift in Sources */,
+				5B0001092D00000000000001 /* PlayerBar.swift in Sources */,
+				5B0001102D00000000000001 /* TimeFormatting.swift in Sources */,
+				5B0001112D00000000000001 /* Color+Aria.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		5B000A012D00000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		5B000A022D00000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		5B000B012D00000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AriaMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tofi.aria.mac;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		5B000B022D00000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = AriaMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tofi.aria.mac;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5B0008012D00000000000001 /* Build configuration list for PBXNativeTarget "AriaMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5B000B012D00000000000001 /* Debug */,
+				5B000B022D00000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5B0009012D00000000000001 /* Build configuration list for PBXProject "AriaMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5B000A012D00000000000001 /* Debug */,
+				5B000A022D00000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 5B0007012D00000000000001 /* Project object */;
+}
