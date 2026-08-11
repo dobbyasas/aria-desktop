@@ -111,9 +111,14 @@ final class MacPlayerViewModel: ObservableObject {
     @Published private(set) var downloadQueue: [DownloadQueueItem] = []
     @Published private(set) var isDownloadStarting = false
     @Published private(set) var downloadErrorMessage: String?
+    @Published private(set) var youtubeMusicResults: [YouTubeMusicAlbumResult] = []
+    @Published private(set) var isSearchingYouTubeMusic = false
+    @Published private(set) var youtubeMusicSearchError: String?
     @Published var currentTrack: Track?
     @Published var elapsed: TimeInterval = 0
     @Published var isPlaying = false
+    @Published private(set) var isAudioVisualizerEnabled = false
+    @Published private(set) var spectrumLevels = Array(repeating: Float(0.04), count: 36)
     @Published var isShuffleEnabled = false
     @Published var repeatMode: RepeatMode = .off
     @Published private(set) var metadataEditorSession: TrackMetadataEditorSession?
@@ -128,8 +133,17 @@ final class MacPlayerViewModel: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
     private var timer: AnyCancellable?
+    private var spectrumSetupTask: Task<Void, Never>?
+    private var audioSpectrumAnalyzer: AudioSpectrumAnalyzer?
     private var downloadPollTask: Task<Void, Never>?
     private var orderedQueue: [Track] = []
+    private let youtubeMusicSearchClient = YouTubeMusicSearchClient()
+
+    private static let spectrumBandCount = 36
+    private static let restingSpectrumLevels = Array(
+        repeating: Float(0.04),
+        count: spectrumBandCount
+    )
 
     init(serverClient: AriaServerClient = AriaServerClient()) {
         self.serverClient = serverClient
@@ -149,6 +163,7 @@ final class MacPlayerViewModel: ObservableObject {
         }
 
         timer?.cancel()
+        spectrumSetupTask?.cancel()
         downloadPollTask?.cancel()
     }
 
@@ -234,6 +249,7 @@ final class MacPlayerViewModel: ObservableObject {
         } else {
             audioPlayer?.pause()
             stopTimer()
+            resetSpectrum()
         }
     }
 
@@ -254,6 +270,7 @@ final class MacPlayerViewModel: ObservableObject {
             isPlaying = false
             audioPlayer?.pause()
             stopTimer()
+            resetSpectrum()
         }
     }
 
@@ -295,6 +312,21 @@ final class MacPlayerViewModel: ObservableObject {
         } else {
             isShuffleEnabled = true
             shuffleQueue(keeping: currentTrack)
+        }
+    }
+
+    func toggleAudioVisualizer() {
+        isAudioVisualizerEnabled.toggle()
+
+        if isAudioVisualizerEnabled {
+            if let item = audioPlayer?.currentItem {
+                configureSpectrumAnalysis(for: item)
+            }
+        } else {
+            spectrumSetupTask?.cancel()
+            audioPlayer?.currentItem?.audioMix = nil
+            audioSpectrumAnalyzer = nil
+            resetSpectrum()
         }
     }
 
@@ -387,6 +419,81 @@ final class MacPlayerViewModel: ObservableObject {
         downloadQueue.append(DownloadQueueItem(request: request))
         downloadErrorMessage = nil
         startNextQueuedDownloadIfNeeded()
+    }
+
+    func searchYouTubeMusicAlbums(query: String) async {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            youtubeMusicResults = []
+            youtubeMusicSearchError = nil
+            return
+        }
+
+        isSearchingYouTubeMusic = true
+        youtubeMusicSearchError = nil
+        youtubeMusicResults = []
+
+        do {
+            let results = try await youtubeMusicSearchClient.searchAlbums(query: query)
+            youtubeMusicResults = results
+            youtubeMusicSearchError = results.isEmpty
+                ? "No YouTube Music albums matched that search."
+                : nil
+        } catch {
+            youtubeMusicResults = []
+            youtubeMusicSearchError = error.localizedDescription
+        }
+
+        isSearchingYouTubeMusic = false
+    }
+
+    func enqueueDownload(_ result: YouTubeMusicAlbumResult) {
+        enqueueDownload(
+            link: result.downloadLink,
+            album: result.title,
+            albumArtist: result.artist,
+            year: result.year
+        )
+    }
+
+    func isAlbumDownloaded(_ result: YouTubeMusicAlbumResult) -> Bool {
+        let resultTitle = Self.canonicalAlbumName(result.title)
+        let resultArtist = Self.canonicalArtistName(result.artist)
+
+        return albums.contains { album in
+            Self.canonicalAlbumName(album.title) == resultTitle
+                && Self.canonicalArtistName(album.artist) == resultArtist
+        }
+    }
+
+    private static func canonicalAlbumName(_ value: String) -> String {
+        let titleBeforeVariant = value.components(separatedBy: "|").first ?? value
+        let withoutEditionNotes = titleBeforeVariant.replacingOccurrences(
+            of: #"\([^)]*\)|\[[^\]]*\]"#,
+            with: "",
+            options: .regularExpression
+        )
+        let editionWords: Set<String> = [
+            "anniversary", "bonus", "complete", "deluxe", "disc", "disk", "edition",
+            "expanded", "reissue", "remaster", "remastered", "repented", "redux",
+            "version"
+        ]
+
+        return normalizedWords(in: withoutEditionNotes)
+            .filter { !editionWords.contains($0) && Int($0) == nil }
+            .joined(separator: " ")
+    }
+
+    private static func canonicalArtistName(_ value: String) -> String {
+        normalizedWords(in: value).joined(separator: " ")
+    }
+
+    private static func normalizedWords(in value: String) -> [String] {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
     }
 
     func clearFinishedDownloads() {
@@ -640,6 +747,9 @@ final class MacPlayerViewModel: ObservableObject {
     private func startPlayback(for track: Track) -> Bool {
         audioPlayer?.pause()
         removeItemObservers()
+        spectrumSetupTask?.cancel()
+        audioSpectrumAnalyzer = nil
+        resetSpectrum()
 
         guard let streamURL = track.streamURL else {
             audioPlayer = nil
@@ -651,6 +761,9 @@ final class MacPlayerViewModel: ObservableObject {
         let player = AVPlayer(playerItem: item)
         player.volume = Float(min(max(volume, 0), 1))
         audioPlayer = player
+        if isAudioVisualizerEnabled {
+            configureSpectrumAnalysis(for: item)
+        }
 
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
@@ -713,6 +826,53 @@ final class MacPlayerViewModel: ObservableObject {
         playbackErrorMessage = message ?? "Aria could not play this song."
         isPlaying = false
         stopTimer()
+        resetSpectrum()
+    }
+
+    private func configureSpectrumAnalysis(for item: AVPlayerItem) {
+        let asset = item.asset
+
+        spectrumSetupTask = Task { @MainActor [weak self, weak item] in
+            do {
+                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+                try Task.checkCancellation()
+
+                guard
+                    let self,
+                    let item,
+                    audioPlayer?.currentItem === item,
+                    let audioTrack = audioTracks.first
+                else {
+                    return
+                }
+
+                let analyzer = AudioSpectrumAnalyzer(bandCount: Self.spectrumBandCount)
+                analyzer.onLevels = { [weak self, weak analyzer] levels in
+                    Task { @MainActor in
+                        guard
+                            let self,
+                            let analyzer,
+                            self.audioSpectrumAnalyzer === analyzer,
+                            self.isPlaying
+                        else {
+                            return
+                        }
+
+                        self.spectrumLevels = levels
+                    }
+                }
+
+                guard let audioMix = analyzer.makeAudioMix(for: audioTrack) else { return }
+                audioSpectrumAnalyzer = analyzer
+                item.audioMix = audioMix
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func resetSpectrum() {
+        spectrumLevels = Self.restingSpectrumLevels
     }
 
     private func orderedNext(after track: Track) -> Track? {

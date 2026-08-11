@@ -41,6 +41,7 @@ struct ContentView: View {
     @State private var selectedAlbumID: String?
     @State private var searchText = ""
     @State private var isDownloadSheetPresented = false
+    @State private var playerBarHeight: CGFloat = 96
 
     private var activeSection: LibrarySection {
         selectedSection
@@ -54,7 +55,7 @@ struct ContentView: View {
         NavigationSplitView {
             sidebar
         } detail: {
-            ZStack {
+            ZStack(alignment: .bottom) {
                 LinearGradient(
                     colors: [Color.ariaPanel.opacity(0.58), Color.ariaBackground],
                     startPoint: .top,
@@ -79,6 +80,18 @@ struct ContentView: View {
 
                     content
                     PlayerBar()
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: PlayerBarHeightPreferenceKey.self,
+                                    value: geometry.size.height
+                                )
+                            }
+                        }
+                }
+
+                if player.isAudioVisualizerEnabled {
+                    floatingAudioVisualizer
                 }
             }
         }
@@ -102,6 +115,24 @@ struct ContentView: View {
             DownloadMusicSheet()
                 .environmentObject(player)
         }
+        .onPreferenceChange(PlayerBarHeightPreferenceKey.self) { height in
+            playerBarHeight = height
+        }
+    }
+
+    private var floatingAudioVisualizer: some View {
+        AudioVisualizer(
+            levels: player.spectrumLevels,
+            hasTrack: player.currentTrack != nil
+        )
+        .frame(height: 85)
+        .padding(.horizontal, 14)
+        .padding(.bottom, playerBarHeight + 6)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Audio visualizer")
+        .accessibilityValue(player.isPlaying ? "Playing" : "Paused")
+        .zIndex(3)
     }
 
     private var sidebar: some View {
@@ -314,6 +345,14 @@ struct ContentView: View {
 
     private var serverStatusColor: Color {
         player.catalogErrorMessage == nil ? Color.ariaTextSecondary : Color.orange
+    }
+}
+
+private struct PlayerBarHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 96
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
@@ -1167,11 +1206,17 @@ struct DownloadMusicSheet: View {
     @State private var album = ""
     @State private var albumArtist = ""
     @State private var year = ""
+    @State private var youtubeMusicQuery = ""
+    @State private var visibleYouTubeResultCount = 3
 
     private var canQueueDownload: Bool {
         !trimmed(link).isEmpty
         && !trimmed(album).isEmpty
         && !trimmed(albumArtist).isEmpty
+    }
+
+    private var canSearchYouTubeMusic: Bool {
+        !trimmed(youtubeMusicQuery).isEmpty && !player.isSearchingYouTubeMusic
     }
 
     var body: some View {
@@ -1181,7 +1226,7 @@ struct DownloadMusicSheet: View {
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(Color.ariaTextPrimary)
 
-                Text("Add albums to a queue. Aria downloads them one by one on the Fedora server.")
+                Text("Find albums on YouTube Music or add a link manually. Aria downloads them one by one on the Fedora server.")
                     .font(.caption)
                     .foregroundStyle(Color.ariaTextSecondary)
             }
@@ -1194,7 +1239,61 @@ struct DownloadMusicSheet: View {
                 .overlay(Color.ariaDivider)
 
             Form {
-                Section("Add Album") {
+                Section("Search YouTube Music") {
+                    HStack(spacing: 10) {
+                        TextField("Album or artist", text: $youtubeMusicQuery)
+                            .onSubmit {
+                                searchYouTubeMusic()
+                            }
+
+                        Button {
+                            searchYouTubeMusic()
+                        } label: {
+                            if player.isSearchingYouTubeMusic {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .frame(width: 72)
+                            } else {
+                                Label("Search", systemImage: "magnifyingglass")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color.ariaAccent)
+                        .disabled(!canSearchYouTubeMusic)
+                    }
+
+                    if let error = player.youtubeMusicSearchError {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(Color.orange)
+                    }
+
+                    ForEach(Array(player.youtubeMusicResults.prefix(visibleYouTubeResultCount))) { result in
+                        YouTubeMusicAlbumResultRow(result: result)
+                    }
+
+                    if visibleYouTubeResultCount < player.youtubeMusicResults.count {
+                        HStack {
+                            Text("Showing \(visibleYouTubeResultCount) of \(player.youtubeMusicResults.count)")
+                                .font(.caption)
+                                .foregroundStyle(Color.ariaTextSecondary)
+
+                            Spacer()
+
+                            Button {
+                                visibleYouTubeResultCount = min(
+                                    visibleYouTubeResultCount + 3,
+                                    player.youtubeMusicResults.count
+                                )
+                            } label: {
+                                Label("Load More", systemImage: "chevron.down")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
+
+                Section("Add Link Manually") {
                     TextField("Playlist / album link", text: $link)
                     TextField("Album name", text: $album)
                     TextField("Album artist", text: $albumArtist)
@@ -1261,8 +1360,18 @@ struct DownloadMusicSheet: View {
             }
             .padding(18)
         }
-        .frame(width: 620, height: 700)
+        .frame(width: 720, height: 760)
         .background(Color.ariaBackground)
+    }
+
+    private func searchYouTubeMusic() {
+        guard canSearchYouTubeMusic else { return }
+        let query = youtubeMusicQuery
+        visibleYouTubeResultCount = 3
+
+        Task {
+            await player.searchYouTubeMusicAlbums(query: query)
+        }
     }
 
     private func addCurrentAlbumToQueue() {
@@ -1283,6 +1392,86 @@ struct DownloadMusicSheet: View {
 
     private func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct YouTubeMusicAlbumResultRow: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+
+    let result: YouTubeMusicAlbumResult
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AsyncImage(url: result.artworkURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                case .failure:
+                    artworkPlaceholder
+                case .empty:
+                    ProgressView()
+                        .controlSize(.small)
+                @unknown default:
+                    artworkPlaceholder
+                }
+            }
+            .frame(width: 52, height: 52)
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(result.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.ariaTextPrimary)
+                    .lineLimit(1)
+
+                Text(resultSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(Color.ariaTextSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
+
+            if isDownloaded {
+                Label("Downloaded", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.ariaAccent)
+            } else {
+                Button {
+                    player.enqueueDownload(result)
+                } label: {
+                    Label(isQueued ? "Queued" : "Download", systemImage: isQueued ? "checkmark" : "arrow.down")
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.ariaAccent)
+                .disabled(isQueued)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var artworkPlaceholder: some View {
+        Image(systemName: "square.stack")
+            .foregroundStyle(Color.ariaTextSecondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var resultSubtitle: String {
+        result.year.isEmpty ? result.artist : "\(result.artist) • \(result.year)"
+    }
+
+    private var isQueued: Bool {
+        player.downloadQueue.contains { item in
+            guard item.request.link == result.downloadLink else { return false }
+            return !item.isFinished || item.job?.isSuccessful == true
+        }
+    }
+
+    private var isDownloaded: Bool {
+        player.isAlbumDownloaded(result)
     }
 }
 

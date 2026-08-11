@@ -142,6 +142,16 @@ struct PlayerBar: View {
                     .foregroundStyle(player.repeatMode == .off ? Color.ariaTextSecondary : Color.ariaAccent)
             }
             .help(player.repeatMode.title)
+
+            Button {
+                player.toggleAudioVisualizer()
+            } label: {
+                Image(systemName: "waveform")
+                    .foregroundStyle(
+                        player.isAudioVisualizerEnabled ? Color.ariaAccent : Color.ariaTextSecondary
+                    )
+            }
+            .help(player.isAudioVisualizerEnabled ? "Hide audio visualizer" : "Show audio visualizer")
         }
         .buttonStyle(.plain)
         .font(.system(size: 16, weight: .semibold))
@@ -178,6 +188,136 @@ struct PlayerBar: View {
                 .tint(Color.ariaAccent)
         }
         .help("Volume")
+    }
+}
+
+struct AudioVisualizer: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    let levels: [Float]
+    let hasTrack: Bool
+
+    private var displayedLevels: [Float] {
+        guard hasTrack else {
+            return levels.map { _ in 0.035 }
+        }
+
+        guard !accessibilityReduceMotion else {
+            return levels.enumerated().map { index, _ in
+                Float(0.07 + 0.035 * (0.5 + 0.5 * sin(Double(index) * 1.17)))
+            }
+        }
+
+        return levels
+    }
+
+    var body: some View {
+        let bars = SpectrumBarsShape(levels: displayedLevels)
+
+        ZStack {
+            bars
+                .fill(Color.ariaAccent.opacity(hasTrack ? 0.28 : 0.08))
+                .blur(radius: 11)
+
+            bars
+                .fill(hasTrack ? Color.ariaAccent : Color.ariaAccent.opacity(0.14))
+
+            bars
+                .stroke(Color.white.opacity(hasTrack ? 0.08 : 0.025), lineWidth: 0.4)
+        }
+        .animation(
+            accessibilityReduceMotion
+                ? nil
+                : .easeOut(duration: 0.055),
+            value: displayedLevels
+        )
+    }
+}
+
+private struct SpectrumBarsShape: Shape {
+    var vector: SpectrumVector
+
+    init(levels: [Float]) {
+        vector = SpectrumVector(values: levels.map(Double.init))
+    }
+
+    var animatableData: SpectrumVector {
+        get { vector }
+        set { vector = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        guard rect.width > 0, rect.height > 0, !vector.values.isEmpty else { return Path() }
+
+        let spacing = 2.6
+        let barCount = vector.values.count
+        let barWidth = max(1.8, (rect.width - spacing * Double(barCount - 1)) / Double(barCount))
+        let maximumHeight = max(rect.height - 2, 2)
+        var path = Path()
+
+        for index in 0..<barCount {
+            let rawLevel = min(max(vector.values[index], 0.025), 1)
+            let level = min(pow(rawLevel, 0.82) * 1.08, 1)
+            let height = maximumHeight * level
+            let barRect = CGRect(
+                x: rect.minX + Double(index) * (barWidth + spacing),
+                y: rect.maxY - height,
+                width: barWidth,
+                height: height
+            )
+            path.addRoundedRect(
+                in: barRect,
+                cornerSize: CGSize(width: min(barWidth / 2, 2.8), height: min(barWidth / 2, 2.8))
+            )
+        }
+
+        return path
+    }
+}
+
+private struct SpectrumVector: VectorArithmetic {
+    var values: [Double]
+
+    static var zero: SpectrumVector {
+        SpectrumVector(values: [])
+    }
+
+    static func + (lhs: SpectrumVector, rhs: SpectrumVector) -> SpectrumVector {
+        SpectrumVector(values: combine(lhs.values, rhs.values, operation: +))
+    }
+
+    static func - (lhs: SpectrumVector, rhs: SpectrumVector) -> SpectrumVector {
+        SpectrumVector(values: combine(lhs.values, rhs.values, operation: -))
+    }
+
+    static func += (lhs: inout SpectrumVector, rhs: SpectrumVector) {
+        lhs = lhs + rhs
+    }
+
+    static func -= (lhs: inout SpectrumVector, rhs: SpectrumVector) {
+        lhs = lhs - rhs
+    }
+
+    mutating func scale(by rhs: Double) {
+        values = values.map { $0 * rhs }
+    }
+
+    var magnitudeSquared: Double {
+        values.reduce(0) { $0 + $1 * $1 }
+    }
+
+    private static func combine(
+        _ lhs: [Double],
+        _ rhs: [Double],
+        operation: (Double, Double) -> Double
+    ) -> [Double] {
+        let count = max(lhs.count, rhs.count)
+        return (0..<count).map { index in
+            operation(
+                index < lhs.count ? lhs[index] : 0,
+                index < rhs.count ? rhs[index] : 0
+            )
+        }
     }
 }
 

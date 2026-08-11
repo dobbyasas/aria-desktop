@@ -19,6 +19,8 @@
 		5B0001102D00000000000001 /* TimeFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002102D00000000000001 /* TimeFormatting.swift */; };
 		5B0001112D00000000000001 /* Color+Aria.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002112D00000000000001 /* Color+Aria.swift */; };
 		5B0001122D00000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5B0002122D00000000000001 /* Assets.xcassets */; };
+		5B0001132D00000000000001 /* AudioSpectrumAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002142D00000000000001 /* AudioSpectrumAnalyzer.swift */; };
+		5B0001142D00000000000001 /* YouTubeMusicSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002152D00000000000001 /* YouTubeMusicSearchClient.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +38,8 @@
 		5B0002112D00000000000001 /* Color+Aria.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Aria.swift"; sourceTree = "<group>"; };
 		5B0002122D00000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5B0002132D00000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		5B0002142D00000000000001 /* AudioSpectrumAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSpectrumAnalyzer.swift; sourceTree = "<group>"; };
+		5B0002152D00000000000001 /* YouTubeMusicSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeMusicSearchClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -102,6 +106,8 @@
 			children = (
 				5B0002042D00000000000001 /* AriaServerClient.swift */,
 				5B0002052D00000000000001 /* AriaArtworkCache.swift */,
+				5B0002142D00000000000001 /* AudioSpectrumAnalyzer.swift */,
+				5B0002152D00000000000001 /* YouTubeMusicSearchClient.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -213,6 +219,8 @@
 				5B0001092D00000000000001 /* PlayerBar.swift in Sources */,
 				5B0001102D00000000000001 /* TimeFormatting.swift in Sources */,
 				5B0001112D00000000000001 /* Color+Aria.swift in Sources */,
+				5B0001132D00000000000001 /* AudioSpectrumAnalyzer.swift in Sources */,
+				5B0001142D00000000000001 /* YouTubeMusicSearchClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

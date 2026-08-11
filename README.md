@@ -17,7 +17,9 @@ This first Mac version includes:
 - songs, albums, playlists, and queue sections
 - album cards open an album detail page before playback
 - queued server-side album downloads with progress and ETA from the sidebar
+- in-app YouTube Music album search with artwork, metadata, and one-click queueing
 - AVPlayer playback
+- live low-to-high audio spectrum driven by decoded playback samples
 - shuffle that mutates the queue
 - repeat modes
 - cached artwork
