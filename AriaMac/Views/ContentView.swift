@@ -179,6 +179,21 @@ struct ContentView: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                Divider()
+                    .overlay(Color.ariaDivider)
+
+                Text(AriaRelease.displayText)
+                    .font(.caption2.monospacedDigit().weight(.medium))
+                    .foregroundStyle(Color.ariaTextSecondary.opacity(0.72))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .accessibilityLabel("Aria \(AriaRelease.displayText)")
+            }
+            .background(.regularMaterial)
+        }
         .navigationTitle("Aria")
         .navigationSplitViewColumnWidth(min: 180, ideal: 220)
     }
