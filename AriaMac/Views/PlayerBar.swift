@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PlayerBar: View {
     @EnvironmentObject private var player: MacPlayerViewModel
+    @State private var lyricsTrack: Track?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,7 +19,11 @@ struct PlayerBar: View {
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 14)
-            .background(Color.black.opacity(0.24))
+                .background(Color.black.opacity(0.24))
+        }
+        .sheet(item: $lyricsTrack) { track in
+            MacLyricsSheet(track: track)
+                .environmentObject(player)
         }
     }
 
@@ -152,6 +157,15 @@ struct PlayerBar: View {
                     )
             }
             .help(player.isAudioVisualizerEnabled ? "Hide audio visualizer" : "Show audio visualizer")
+
+            Button {
+                lyricsTrack = player.currentTrack
+            } label: {
+                Image(systemName: "quote.bubble")
+                    .foregroundStyle(Color.ariaTextSecondary)
+            }
+            .disabled(player.currentTrack == nil)
+            .help("Show lyrics")
         }
         .buttonStyle(.plain)
         .font(.system(size: 16, weight: .semibold))
@@ -188,6 +202,207 @@ struct PlayerBar: View {
                 .tint(Color.ariaAccent)
         }
         .help("Volume")
+    }
+}
+
+private struct MacLyricsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var player: MacPlayerViewModel
+
+    let track: Track
+
+    @State private var lyrics: TrackLyrics?
+    @State private var errorMessage: String?
+    @State private var isLoading = true
+
+    private var activeLineID: String? {
+        lyrics?.activeLineID(at: player.elapsed)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider().overlay(Color.ariaDivider)
+
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(hex: track.artwork.topHex).opacity(0.26),
+                        Color.ariaBackground
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                content
+            }
+        }
+        .frame(minWidth: 520, idealWidth: 620, minHeight: 560, idealHeight: 700)
+        .background(Color.ariaBackground)
+        .task(id: track.id) {
+            await loadLyrics()
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            ArtworkView(track: track, size: 54, cornerRadius: 7)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Lyrics")
+                    .font(.headline)
+                    .foregroundStyle(Color.ariaAccent)
+                Text(track.title)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.ariaTextPrimary)
+                    .lineLimit(1)
+                Text(track.artist)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.ariaTextSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button("Done") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(18)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isLoading {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Finding lyrics…")
+                    .foregroundStyle(Color.ariaTextSecondary)
+            }
+        } else if let errorMessage {
+            messageView(
+                title: "Lyrics unavailable",
+                message: errorMessage,
+                systemImage: "wifi.exclamationmark",
+                retry: true
+            )
+        } else if let lyrics, lyrics.instrumental {
+            messageView(
+                title: "Instrumental",
+                message: "This track does not have sung lyrics.",
+                systemImage: "music.note",
+                retry: false
+            )
+        } else if let lyrics, lyrics.available {
+            lyricsView(lyrics)
+        } else {
+            messageView(
+                title: "No lyrics found",
+                message: "Aria checked the audio file and the online lyrics library.",
+                systemImage: "quote.bubble",
+                retry: true
+            )
+        }
+    }
+
+    private func lyricsView(_ lyrics: TrackLyrics) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: lyrics.isSynced ? 18 : 11) {
+                    if lyrics.isSynced {
+                        ForEach(lyrics.syncedLines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }) { line in
+                            let isActive = line.id == activeLineID
+
+                            Button {
+                                seek(to: line.startTime)
+                            } label: {
+                                Text(line.text)
+                                    .font(isActive ? .title2.bold() : .title3.weight(.semibold))
+                                    .foregroundStyle(
+                                        isActive
+                                            ? Color.ariaTextPrimary
+                                            : Color.ariaTextSecondary.opacity(0.68)
+                                    )
+                                    .multilineTextAlignment(.leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .id(line.id)
+                            .animation(.easeOut(duration: 0.16), value: isActive)
+                        }
+                    } else {
+                        ForEach(Array(lyrics.plainLines.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(Color.ariaTextPrimary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    if lyrics.source == "lrclib" {
+                        Text("Lyrics provided by LRCLIB")
+                            .font(.caption)
+                            .foregroundStyle(Color.ariaTextSecondary.opacity(0.7))
+                            .padding(.top, 18)
+                    }
+                }
+                .padding(28)
+            }
+            .onChange(of: activeLineID) { _, newLineID in
+                guard let newLineID else { return }
+                withAnimation(.easeInOut(duration: 0.34)) {
+                    proxy.scrollTo(newLineID, anchor: .center)
+                }
+            }
+        }
+    }
+
+    private func messageView(
+        title: String,
+        message: String,
+        systemImage: String,
+        retry: Bool
+    ) -> some View {
+        VStack(spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.system(size: 38, weight: .semibold))
+                .foregroundStyle(Color.ariaAccent)
+            Text(title)
+                .font(.title2.bold())
+                .foregroundStyle(Color.ariaTextPrimary)
+            Text(message)
+                .foregroundStyle(Color.ariaTextSecondary)
+                .multilineTextAlignment(.center)
+
+            if retry {
+                Button("Try again") {
+                    Task { await loadLyrics() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.ariaAccent)
+            }
+        }
+        .padding(30)
+    }
+
+    private func loadLyrics() async {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            lyrics = try await AriaServerClient().fetchLyrics(for: track)
+        } catch {
+            lyrics = nil
+            errorMessage = error.localizedDescription
+        }
+
+        isLoading = false
+    }
+
+    private func seek(to startTime: TimeInterval) {
+        guard track.duration > 0 else { return }
+        player.seek(toProgress: min(max(startTime / track.duration, 0), 1))
     }
 }
 

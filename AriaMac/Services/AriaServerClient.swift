@@ -71,6 +71,28 @@ struct AriaServerClient {
         throw AriaServerError.unreachable(failures)
     }
 
+    func fetchLyrics(for track: Track) async throws -> TrackLyrics {
+        var failures: [String] = []
+
+        for baseURL in baseURLs {
+            do {
+                let (data, _) = try await sendRequest(
+                    to: lyricsEndpoint(for: track, baseURL: baseURL),
+                    method: "GET"
+                )
+                do {
+                    return try JSONDecoder().decode(TrackLyrics.self, from: data)
+                } catch {
+                    throw AriaServerError.decoding(error)
+                }
+            } catch {
+                failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+
+        throw AriaServerError.unreachable(failures)
+    }
+
     func updateTrackMetadata(for track: Track, metadata: TrackMetadataUpdate) async throws -> Track {
         let body = try JSONEncoder().encode(metadata)
         var failures: [String] = []
@@ -243,6 +265,10 @@ struct AriaServerClient {
 
     private func trackEndpoint(for track: Track, baseURL: URL) -> URL {
         tracksEndpoint(baseURL: baseURL).appendingPathComponent(track.serverID ?? track.id.uuidString)
+    }
+
+    private func lyricsEndpoint(for track: Track, baseURL: URL) -> URL {
+        trackEndpoint(for: track, baseURL: baseURL).appendingPathComponent("lyrics")
     }
 
     private func tracksEndpoint(baseURL: URL) -> URL {
