@@ -1,6 +1,16 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.6.0
+Created: 2026-08-30
+
+Changed:
+- Reworked the library into a denser, calmer layout with clearer system typography and a neutral surface palette.
+- Removed the redundant Songs hero card and duplicate library count so tracks begin immediately below the header.
+- Moved secondary track and player actions into native contextual menus and restyled row numbers as plain information.
+- Simplified the player bar and reduced the audio visualizer from three rendering layers to one for smoother playback.
+
+
 Version 1.5.0
 Created: 2026-08-29
 

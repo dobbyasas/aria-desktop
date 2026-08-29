@@ -17,8 +17,8 @@ struct PlayerBar: View {
                 compactLayout
             }
             .padding(.horizontal, 22)
-            .padding(.vertical, 14)
-                .background(Color.black.opacity(0.24))
+            .padding(.vertical, 10)
+            .background(Color.ariaSurface)
         }
     }
 
@@ -62,16 +62,16 @@ struct PlayerBar: View {
     private var currentTrackSummary: some View {
         HStack(spacing: 12) {
             if let track = player.currentTrack {
-                ArtworkView(track: track, size: 54, cornerRadius: 7)
+                ArtworkView(track: track, size: 48, cornerRadius: 7)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(track.title)
-                        .font(.headline)
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.ariaTextPrimary)
                         .lineLimit(1)
 
                     Text("\(track.artist) - \(track.album)")
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundStyle(Color.ariaTextSecondary)
                         .lineLimit(1)
                 }
@@ -143,26 +143,33 @@ struct PlayerBar: View {
             }
             .help(player.repeatMode.title)
 
-            Button {
-                player.toggleAudioVisualizer()
-            } label: {
-                Image(systemName: "waveform")
-                    .foregroundStyle(
-                        player.isAudioVisualizerEnabled ? Color.ariaAccent : Color.ariaTextSecondary
-                    )
-            }
-            .help(player.isAudioVisualizerEnabled ? "Hide audio visualizer" : "Show audio visualizer")
+            Menu {
+                Button(
+                    player.isLyricsPresented ? "Hide Lyrics" : "Show Lyrics",
+                    systemImage: "quote.bubble"
+                ) {
+                    player.toggleLyrics()
+                }
+                .disabled(player.currentTrack == nil)
 
-            Button {
-                player.toggleLyrics()
+                Button(
+                    player.isAudioVisualizerEnabled ? "Hide Visualizer" : "Show Visualizer",
+                    systemImage: "waveform"
+                ) {
+                    player.toggleAudioVisualizer()
+                }
             } label: {
-                Image(systemName: "quote.bubble")
+                Image(systemName: "ellipsis")
                     .foregroundStyle(
-                        player.isLyricsPresented ? Color.ariaAccent : Color.ariaTextSecondary
+                        player.isLyricsPresented || player.isAudioVisualizerEnabled
+                            ? Color.ariaAccent
+                            : Color.ariaTextSecondary
                     )
+                    .frame(width: 24, height: 24)
             }
-            .disabled(player.currentTrack == nil)
-            .help(player.isLyricsPresented ? "Hide karaoke lyrics" : "Show karaoke lyrics")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .help("Player options")
         }
         .buttonStyle(.plain)
         .font(.system(size: 16, weight: .semibold))
@@ -254,8 +261,7 @@ struct MacKaraokeLyricsView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("KARAOKE LYRICS")
-                    .font(.caption.weight(.bold))
-                    .tracking(1.5)
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(Color.ariaAccent)
                 Text(track.title)
                     .font(.title2.weight(.bold))
@@ -342,7 +348,7 @@ struct MacKaraokeLyricsView: View {
                                         .system(
                                             size: isActive ? 42 : 30,
                                             weight: isActive ? .bold : .semibold,
-                                            design: .rounded
+                                            design: .default
                                         )
                                     )
                                     .foregroundStyle(
@@ -362,7 +368,7 @@ struct MacKaraokeLyricsView: View {
                     } else {
                         ForEach(Array(lyrics.plainLines.enumerated()), id: \.offset) { _, line in
                             Text(line)
-                                .font(.system(size: 30, weight: .semibold, design: .rounded))
+                                .font(.system(size: 30, weight: .semibold))
                                 .foregroundStyle(Color.ariaTextPrimary.opacity(0.88))
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -401,7 +407,7 @@ struct MacKaraokeLyricsView: View {
                 .font(.system(size: 52, weight: .semibold))
                 .foregroundStyle(Color.ariaAccent)
             Text(title)
-                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(Color.ariaTextPrimary)
             Text(message)
                 .font(.title3)
@@ -468,21 +474,12 @@ struct AudioVisualizer: View {
     var body: some View {
         let bars = SpectrumBarsShape(levels: displayedLevels)
 
-        ZStack {
-            bars
-                .fill(Color.ariaAccent.opacity(hasTrack ? 0.28 : 0.08))
-                .blur(radius: 11)
-
-            bars
-                .fill(hasTrack ? Color.ariaAccent : Color.ariaAccent.opacity(0.14))
-
-            bars
-                .stroke(Color.white.opacity(hasTrack ? 0.08 : 0.025), lineWidth: 0.4)
-        }
+        bars
+            .fill(hasTrack ? Color.ariaAccent : Color.ariaAccent.opacity(0.14))
         .animation(
             accessibilityReduceMotion
                 ? nil
-                : .easeOut(duration: 0.055),
+                : .easeOut(duration: 0.08),
             value: displayedLevels
         )
     }

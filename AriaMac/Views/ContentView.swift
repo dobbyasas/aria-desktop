@@ -177,8 +177,22 @@ struct ContentView: View {
                 Button {
                     isDownloadSheetPresented = true
                 } label: {
-                    Label("Download Music", systemImage: "plus.circle")
+                    HStack(spacing: 9) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 20)
+
+                        Text("Download Music")
+                            .font(.system(size: 14, weight: .medium))
+
+                        Spacer()
+                    }
+                    .foregroundStyle(Color.ariaTextSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
 
                 if !player.downloadQueue.isEmpty {
                     SidebarDownloadStatus(
@@ -216,7 +230,7 @@ struct ContentView: View {
         HStack(alignment: .center, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(activeSection.title)
-                    .font(.system(size: 32, weight: .bold))
+                    .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(Color.ariaTextPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
@@ -229,6 +243,16 @@ struct ContentView: View {
             .layoutPriority(1)
 
             Spacer()
+
+            if activeSection == .songs, let firstTrack = filteredTracks.first {
+                Button {
+                    player.play(firstTrack, from: filteredTracks)
+                } label: {
+                    Label("Play", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.ariaAccent)
+            }
 
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
@@ -267,13 +291,16 @@ struct ContentView: View {
                 if player.isCatalogLoading {
                     ProgressView()
                         .controlSize(.small)
-                        .frame(width: 82)
+                        .frame(width: 30, height: 30)
                 } else {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: 30, height: 30)
                 }
             }
             .disabled(player.isCatalogLoading)
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.ariaTextSecondary)
+            .help("Refresh library")
         }
         .padding(.horizontal, 24)
         .padding(.top, 24)
@@ -428,25 +455,17 @@ struct SongsView: View {
                 let showsAlbum = proxy.size.width >= 760
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        LibraryOverviewCard(
-                            tracks: tracks,
-                            title: isSearching ? "Search Results" : "Your Music",
-                            subtitle: "\(tracks.count) songs ready to play"
-                        )
+                    VStack(spacing: 0) {
+                        TrackListHeader(showAlbum: showsAlbum)
 
-                        VStack(spacing: 0) {
-                            TrackListHeader(showAlbum: showsAlbum)
-
-                            LazyVStack(spacing: 2) {
-                                ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                                    TrackRow(
-                                        track: track,
-                                        source: tracks,
-                                        index: index + 1,
-                                        showAlbum: showsAlbum
-                                    )
-                                }
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                                TrackRow(
+                                    track: track,
+                                    source: tracks,
+                                    index: index + 1,
+                                    showAlbum: showsAlbum
+                                )
                             }
                         }
                     }
@@ -663,7 +682,13 @@ struct QueueView: View {
                         }
 
                         VStack(spacing: 0) {
-                            TrackListHeader(title: "Up Next", showAlbum: showsAlbum)
+                            Text("Up Next")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(Color.ariaTextPrimary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.bottom, 8)
+
+                            TrackListHeader(showAlbum: showsAlbum)
 
                             if player.upNext.isEmpty {
                                 EmptyStateView(
@@ -827,13 +852,12 @@ struct NowPlayingPanel: View {
 }
 
 struct TrackListHeader: View {
-    var title: String = "Tracks"
     var showAlbum = true
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Text(title)
+                Text("#")
                     .frame(width: 44, alignment: .leading)
 
                 Text("Title")
@@ -898,7 +922,11 @@ struct TrackRow: View {
                 .foregroundStyle(isCurrentTrack ? Color.black : Color.ariaTextSecondary)
                 .background(
                     Circle()
-                        .fill(isCurrentTrack ? Color.ariaAccent : Color.white.opacity(isHovering ? 0.11 : 0.04))
+                        .fill(
+                            isCurrentTrack
+                                ? Color.ariaAccent
+                                : Color.white.opacity(isHovering ? 0.11 : 0)
+                        )
                 )
             }
             .buttonStyle(.plain)
@@ -955,15 +983,38 @@ struct TrackRow: View {
                 .foregroundStyle(Color.ariaTextSecondary)
                 .help("Remove from queue")
             } else {
-                Button {
-                    player.playNext(track)
+                Menu {
+                    Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                        player.playNext(track)
+                    }
+
+                    Menu("Add to Playlist") {
+                        Button("New Playlist with Song") {
+                            let playlist = player.createPlaylist()
+                            player.add(track, to: playlist)
+                        }
+
+                        ForEach(player.playlists) { playlist in
+                            Button(playlist.title) {
+                                player.add(track, to: playlist)
+                            }
+                            .disabled(playlist.tracks.contains(where: { $0.id == track.id }))
+                        }
+                    }
+
+                    Divider()
+
+                    Button("Edit Metadata", systemImage: "slider.horizontal.3") {
+                        player.editMetadata(for: track)
+                    }
                 } label: {
-                    Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                    Image(systemName: "ellipsis")
                         .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(isHovering ? Color.ariaTextSecondary : Color.clear)
-                .help("Play next")
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .foregroundStyle(isHovering ? Color.ariaTextSecondary : Color.ariaTextSecondary.opacity(0.45))
+                .help("More actions")
             }
         }
         .padding(.horizontal, 12)
