@@ -93,6 +93,48 @@ struct AriaServerClient {
         throw AriaServerError.unreachable(failures)
     }
 
+    func fetchPlaylists() async throws -> [AriaServerPlaylist] {
+        var failures: [String] = []
+
+        for baseURL in baseURLs {
+            do {
+                let (data, _) = try await sendRequest(
+                    to: playlistsEndpoint(baseURL: baseURL),
+                    method: "GET"
+                )
+                return try JSONDecoder().decode([AriaServerPlaylist].self, from: data)
+            } catch {
+                failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+
+        throw AriaServerError.unreachable(failures)
+    }
+
+    func savePlaylist(_ playlist: AriaPlaylist) async throws -> AriaServerPlaylist {
+        let payload = AriaServerPlaylist(playlist: playlist)
+        let body = try JSONEncoder().encode(payload)
+        var failures: [String] = []
+
+        for baseURL in baseURLs {
+            do {
+                let endpoint = playlistsEndpoint(baseURL: baseURL)
+                    .appendingPathComponent(playlist.id.uuidString.lowercased())
+                let (data, _) = try await sendRequest(
+                    to: endpoint,
+                    method: "PUT",
+                    body: body,
+                    contentType: "application/json"
+                )
+                return try JSONDecoder().decode(AriaServerPlaylist.self, from: data)
+            } catch {
+                failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+
+        throw AriaServerError.unreachable(failures)
+    }
+
     func updateTrackMetadata(for track: Track, metadata: TrackMetadataUpdate) async throws -> Track {
         let body = try JSONEncoder().encode(metadata)
         var failures: [String] = []
@@ -277,6 +319,12 @@ struct AriaServerClient {
             .reduce(baseURL) { url, component in
                 url.appendingPathComponent(String(component))
             }
+    }
+
+    private func playlistsEndpoint(baseURL: URL) -> URL {
+        baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("playlists")
     }
 
     private func downloadsEndpoint(baseURL: URL) -> URL {

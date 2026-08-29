@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 enum LibrarySection: String, CaseIterable, Identifiable {
     case songs
@@ -600,25 +601,41 @@ struct MacAlbumDetailView: View {
 }
 
 struct PlaylistsView: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
     let playlists: [AriaPlaylist]
 
     var body: some View {
-        if playlists.isEmpty {
-            EmptyStateView(
-                title: "No playlists yet",
-                message: "Aria will show server playlists here when they are available.",
-                systemImage: "music.note.list"
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(playlists) { playlist in
-                        PlaylistCard(playlist: playlist)
-                    }
+        VStack(spacing: 16) {
+            HStack {
+                Spacer()
+
+                Button {
+                    player.createPlaylist()
+                } label: {
+                    Label("New Playlist", systemImage: "plus")
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .buttonStyle(.borderedProminent)
+                .tint(Color.ariaAccent)
+            }
+            .padding(.horizontal, 24)
+
+            if playlists.isEmpty {
+                EmptyStateView(
+                    title: "No playlists yet",
+                    message: "Create one here or on iPhone and it will appear on every Aria device.",
+                    systemImage: "music.note.list"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(playlists) { playlist in
+                            PlaylistCard(playlist: playlist)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
+                }
             }
         }
     }
@@ -969,6 +986,24 @@ struct TrackRow: View {
                 player.playNext(track)
             }
 
+            Menu("Add to Playlist") {
+                Button("New Playlist with Song") {
+                    let playlist = player.createPlaylist()
+                    player.add(track, to: playlist)
+                }
+
+                if !player.playlists.isEmpty {
+                    Divider()
+
+                    ForEach(player.playlists) { playlist in
+                        Button(playlist.title) {
+                            player.add(track, to: playlist)
+                        }
+                        .disabled(playlist.tracks.contains(where: { $0.id == track.id }))
+                    }
+                }
+            }
+
             Divider()
 
             Button("Edit Metadata") {
@@ -1054,14 +1089,7 @@ struct PlaylistCard: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.ariaPanelRaised)
-                .frame(width: 64, height: 64)
-                .overlay(
-                    Image(systemName: "music.note.list")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(Color.ariaAccent)
-                )
+            playlistArtwork
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(playlist.title)
@@ -1094,6 +1122,29 @@ struct PlaylistCard: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color.ariaDivider, lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private var playlistArtwork: some View {
+        if let coverImageData = playlist.coverImageData,
+           let image = NSImage(data: coverImageData) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else if let firstTrack = playlist.tracks.first {
+            ArtworkView(track: firstTrack, size: 64, cornerRadius: 8)
+        } else {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.ariaPanelRaised)
+                .frame(width: 64, height: 64)
+                .overlay(
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Color.ariaAccent)
+                )
+        }
     }
 }
 

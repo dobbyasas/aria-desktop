@@ -203,6 +203,11 @@ final class MacPlayerViewModel: ObservableObject {
         do {
             let tracks = try await serverClient.fetchTracks()
             replaceCatalog(with: tracks)
+
+            if let serverPlaylists = try? await serverClient.fetchPlaylists() {
+                let tracksByID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+                playlists = serverPlaylists.map { $0.playlist(using: tracksByID) }
+            }
         } catch {
             catalogErrorMessage = error.localizedDescription
         }
@@ -227,6 +232,36 @@ final class MacPlayerViewModel: ObservableObject {
         }
 
         beginPlayback(for: freshestVersion(of: track))
+    }
+
+    @discardableResult
+    func createPlaylist() -> AriaPlaylist {
+        let number = playlists.filter { $0.title.hasPrefix("New Playlist") }.count + 1
+        let playlist = AriaPlaylist(
+            title: "New Playlist \(number)",
+            subtitle: "0 songs",
+            tracks: [],
+            revision: 1
+        )
+        playlists.insert(playlist, at: 0)
+        syncPlaylist(playlist)
+        return playlist
+    }
+
+    func add(_ track: Track, to playlist: AriaPlaylist) {
+        guard let index = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        guard !playlists[index].tracks.contains(where: { $0.id == track.id }) else { return }
+
+        playlists[index].tracks.append(track)
+        playlists[index].subtitle = Self.subtitle(forTrackCount: playlists[index].tracks.count)
+        playlists[index].revision += 1
+        syncPlaylist(playlists[index])
+    }
+
+    private func syncPlaylist(_ playlist: AriaPlaylist) {
+        Task { [serverClient] in
+            _ = try? await serverClient.savePlaylist(playlist)
+        }
     }
 
     func playPause() {
@@ -993,7 +1028,6 @@ final class MacPlayerViewModel: ObservableObject {
 
     private func rebuildDerivedCollections() {
         albums = Self.albums(from: catalog)
-        playlists = Self.playlists(from: catalog)
     }
 
     private static func albums(from catalog: [Track]) -> [AriaAlbum] {
@@ -1049,18 +1083,6 @@ final class MacPlayerViewModel: ObservableObject {
             .max() ?? 0
 
         return mostCommon.value > competingArtistCount ? mostCommon.key : "Various Artists"
-    }
-
-    private static func playlists(from tracks: [Track]) -> [AriaPlaylist] {
-        guard !tracks.isEmpty else { return [] }
-
-        return [
-            AriaPlaylist(
-                title: "All Songs",
-                subtitle: subtitle(forTrackCount: tracks.count),
-                tracks: tracks
-            )
-        ]
     }
 
     private static func subtitle(forTrackCount count: Int) -> String {
