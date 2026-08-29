@@ -64,21 +64,34 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    header
+                    ZStack {
+                        VStack(spacing: 0) {
+                            header
 
-                    if let error = player.catalogErrorMessage, !player.catalog.isEmpty {
-                        InlineStatusBanner(
-                            message: error,
-                            systemImage: "wifi.exclamationmark",
-                            actionTitle: "Retry"
-                        ) {
-                            Task { await player.refreshCatalog() }
+                            if let error = player.catalogErrorMessage, !player.catalog.isEmpty {
+                                InlineStatusBanner(
+                                    message: error,
+                                    systemImage: "wifi.exclamationmark",
+                                    actionTitle: "Retry"
+                                ) {
+                                    Task { await player.refreshCatalog() }
+                                }
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, 12)
+                            }
+
+                            content
                         }
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 12)
-                    }
 
-                    content
+                        if player.isLyricsPresented, let track = player.currentTrack {
+                            MacKaraokeLyricsView(track: track)
+                                .transition(.opacity.combined(with: .scale(scale: 0.995)))
+                                .zIndex(4)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .animation(.easeInOut(duration: 0.22), value: player.isLyricsPresented)
+
                     PlayerBar()
                         .background {
                             GeometryReader { geometry in
@@ -90,7 +103,7 @@ struct ContentView: View {
                         }
                 }
 
-                if player.isAudioVisualizerEnabled {
+                if player.isAudioVisualizerEnabled, !player.isLyricsPresented {
                     floatingAudioVisualizer
                 }
             }

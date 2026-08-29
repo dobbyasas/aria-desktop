@@ -1,6 +1,16 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.2.2
+Created: 2026-08-29
+
+Changed:
+- Replaced the separate lyrics pop-up with full karaoke lyrics across the Mac app's main content area.
+- Kept the sidebar and player controls visible while karaoke lyrics are open.
+- Enlarged synchronized lyric lines with active-line emphasis, smooth auto-scrolling, and click-to-seek.
+- Reloaded lyrics as tracks change and added close and Escape controls.
+
+
 Version 1.2.1
 Created: 2026-08-28
 

@@ -2,7 +2,6 @@ import SwiftUI
 
 struct PlayerBar: View {
     @EnvironmentObject private var player: MacPlayerViewModel
-    @State private var lyricsTrack: Track?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,10 +19,6 @@ struct PlayerBar: View {
             .padding(.horizontal, 22)
             .padding(.vertical, 14)
                 .background(Color.black.opacity(0.24))
-        }
-        .sheet(item: $lyricsTrack) { track in
-            MacLyricsSheet(track: track)
-                .environmentObject(player)
         }
     }
 
@@ -159,13 +154,15 @@ struct PlayerBar: View {
             .help(player.isAudioVisualizerEnabled ? "Hide audio visualizer" : "Show audio visualizer")
 
             Button {
-                lyricsTrack = player.currentTrack
+                player.toggleLyrics()
             } label: {
                 Image(systemName: "quote.bubble")
-                    .foregroundStyle(Color.ariaTextSecondary)
+                    .foregroundStyle(
+                        player.isLyricsPresented ? Color.ariaAccent : Color.ariaTextSecondary
+                    )
             }
             .disabled(player.currentTrack == nil)
-            .help("Show lyrics")
+            .help(player.isLyricsPresented ? "Hide karaoke lyrics" : "Show karaoke lyrics")
         }
         .buttonStyle(.plain)
         .font(.system(size: 16, weight: .semibold))
@@ -205,8 +202,7 @@ struct PlayerBar: View {
     }
 }
 
-private struct MacLyricsSheet: View {
-    @Environment(\.dismiss) private var dismiss
+struct MacKaraokeLyricsView: View {
     @EnvironmentObject private var player: MacPlayerViewModel
 
     let track: Track
@@ -220,24 +216,32 @@ private struct MacLyricsSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().overlay(Color.ariaDivider)
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(hex: track.artwork.topHex).opacity(0.42),
+                    Color(hex: track.artwork.bottomHex).opacity(0.24),
+                    Color.ariaBackground
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
 
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(hex: track.artwork.topHex).opacity(0.26),
-                        Color.ariaBackground
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+            RadialGradient(
+                colors: [Color.ariaAccent.opacity(0.09), .clear],
+                center: .center,
+                startRadius: 20,
+                endRadius: 520
+            )
 
+            VStack(spacing: 0) {
+                header
                 content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 520, idealWidth: 620, minHeight: 560, idealHeight: 700)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ariaBackground)
         .task(id: track.id) {
             await loadLyrics()
@@ -245,15 +249,16 @@ private struct MacLyricsSheet: View {
     }
 
     private var header: some View {
-        HStack(spacing: 14) {
-            ArtworkView(track: track, size: 54, cornerRadius: 7)
+        HStack(spacing: 16) {
+            ArtworkView(track: track, size: 60, cornerRadius: 8)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Lyrics")
-                    .font(.headline)
+                Text("KARAOKE LYRICS")
+                    .font(.caption.weight(.bold))
+                    .tracking(1.5)
                     .foregroundStyle(Color.ariaAccent)
                 Text(track.title)
-                    .font(.title3.weight(.semibold))
+                    .font(.title2.weight(.bold))
                     .foregroundStyle(Color.ariaTextPrimary)
                     .lineLimit(1)
                 Text(track.artist)
@@ -264,10 +269,26 @@ private struct MacLyricsSheet: View {
 
             Spacer()
 
-            Button("Done") { dismiss() }
-                .keyboardShortcut(.cancelAction)
+            Button {
+                player.hideLyrics()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(Color.ariaTextSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Close karaoke lyrics")
+            .accessibilityLabel("Close karaoke lyrics")
+            .keyboardShortcut(.cancelAction)
         }
-        .padding(18)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 20)
+        .background(Color.black.opacity(0.12))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.ariaDivider.opacity(0.6))
+                .frame(height: 1)
+        }
     }
 
     @ViewBuilder
@@ -307,8 +328,8 @@ private struct MacLyricsSheet: View {
 
     private func lyricsView(_ lyrics: TrackLyrics) -> some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: lyrics.isSynced ? 18 : 11) {
+            ScrollView(showsIndicators: false) {
+                LazyVStack(alignment: .center, spacing: lyrics.isSynced ? 26 : 18) {
                     if lyrics.isSynced {
                         ForEach(lyrics.syncedLines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }) { line in
                             let isActive = line.id == activeLineID
@@ -317,26 +338,34 @@ private struct MacLyricsSheet: View {
                                 seek(to: line.startTime)
                             } label: {
                                 Text(line.text)
-                                    .font(isActive ? .title2.bold() : .title3.weight(.semibold))
+                                    .font(
+                                        .system(
+                                            size: isActive ? 42 : 30,
+                                            weight: isActive ? .bold : .semibold,
+                                            design: .rounded
+                                        )
+                                    )
                                     .foregroundStyle(
                                         isActive
                                             ? Color.ariaTextPrimary
-                                            : Color.ariaTextSecondary.opacity(0.68)
+                                            : Color.ariaTextPrimary.opacity(0.3)
                                     )
-                                    .multilineTextAlignment(.leading)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity, alignment: .center)
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .id(line.id)
-                            .animation(.easeOut(duration: 0.16), value: isActive)
+                            .scaleEffect(isActive ? 1 : 0.97)
+                            .animation(.easeOut(duration: 0.2), value: isActive)
                         }
                     } else {
                         ForEach(Array(lyrics.plainLines.enumerated()), id: \.offset) { _, line in
                             Text(line)
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(Color.ariaTextPrimary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .font(.system(size: 30, weight: .semibold, design: .rounded))
+                                .foregroundStyle(Color.ariaTextPrimary.opacity(0.88))
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity, alignment: .center)
                         }
                     }
 
@@ -347,7 +376,10 @@ private struct MacLyricsSheet: View {
                             .padding(.top, 18)
                     }
                 }
-                .padding(28)
+                .frame(maxWidth: 980)
+                .padding(.horizontal, 56)
+                .padding(.vertical, 180)
+                .frame(maxWidth: .infinity)
             }
             .onChange(of: activeLineID) { _, newLineID in
                 guard let newLineID else { return }
@@ -366,12 +398,13 @@ private struct MacLyricsSheet: View {
     ) -> some View {
         VStack(spacing: 14) {
             Image(systemName: systemImage)
-                .font(.system(size: 38, weight: .semibold))
+                .font(.system(size: 52, weight: .semibold))
                 .foregroundStyle(Color.ariaAccent)
             Text(title)
-                .font(.title2.bold())
+                .font(.system(size: 34, weight: .bold, design: .rounded))
                 .foregroundStyle(Color.ariaTextPrimary)
             Text(message)
+                .font(.title3)
                 .foregroundStyle(Color.ariaTextSecondary)
                 .multilineTextAlignment(.center)
 
@@ -387,17 +420,23 @@ private struct MacLyricsSheet: View {
     }
 
     private func loadLyrics() async {
+        let requestedTrackID = track.id
         isLoading = true
         errorMessage = nil
 
         do {
-            lyrics = try await AriaServerClient().fetchLyrics(for: track)
+            let loadedLyrics = try await AriaServerClient().fetchLyrics(for: track)
+            guard !Task.isCancelled, player.currentTrack?.id == requestedTrackID else { return }
+            lyrics = loadedLyrics
         } catch {
+            guard !Task.isCancelled, player.currentTrack?.id == requestedTrackID else { return }
             lyrics = nil
             errorMessage = error.localizedDescription
         }
 
-        isLoading = false
+        if player.currentTrack?.id == requestedTrackID {
+            isLoading = false
+        }
     }
 
     private func seek(to startTime: TimeInterval) {

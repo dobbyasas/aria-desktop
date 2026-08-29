@@ -117,6 +117,7 @@ final class MacPlayerViewModel: ObservableObject {
     @Published var currentTrack: Track?
     @Published var elapsed: TimeInterval = 0
     @Published var isPlaying = false
+    @Published private(set) var isLyricsPresented = false
     @Published private(set) var isAudioVisualizerEnabled = false
     @Published private(set) var spectrumLevels = Array(repeating: Float(0.04), count: 36)
     @Published var isShuffleEnabled = false
@@ -328,6 +329,19 @@ final class MacPlayerViewModel: ObservableObject {
             audioSpectrumAnalyzer = nil
             resetSpectrum()
         }
+    }
+
+    func toggleLyrics() {
+        guard currentTrack != nil else {
+            isLyricsPresented = false
+            return
+        }
+
+        isLyricsPresented.toggle()
+    }
+
+    func hideLyrics() {
+        isLyricsPresented = false
     }
 
     func cycleRepeatMode() {
