@@ -81,6 +81,17 @@ struct DownloadQueueItem: Identifiable {
             return errorMessage
         }
 
+        if status == .succeeded, let job {
+            let newCount = job.newFiles ?? 0
+            let reusedCount = job.reusedFiles ?? 0
+            if let playlistCount = job.playlistTrackCount {
+                return "Playlist created with \(playlistCount) songs — \(newCount) new, \(reusedCount) reused"
+            }
+            if reusedCount > 0 && newCount == 0 {
+                return "Already in your Aria library"
+            }
+        }
+
         if let job, !job.message.isEmpty {
             return job.message
         }
@@ -115,6 +126,8 @@ final class MacPlayerViewModel: ObservableObject {
     @Published private(set) var isDownloadStarting = false
     @Published private(set) var downloadErrorMessage: String?
     @Published private(set) var youtubeMusicResults: [YouTubeMusicAlbumResult] = []
+    @Published private(set) var youtubeMusicSongResults: [YouTubeMusicSongResult] = []
+    @Published private(set) var youtubeMusicPlaylistResults: [YouTubeMusicPlaylistResult] = []
     @Published private(set) var isSearchingYouTubeMusic = false
     @Published private(set) var youtubeMusicSearchError: String?
     @Published var currentTrack: Track?
@@ -499,12 +512,19 @@ final class MacPlayerViewModel: ObservableObject {
         return activeRemaining + (averageDuration ?? 0) * Double(waitingDownloadCount)
     }
 
-    func enqueueDownload(link: String, album: String, albumArtist: String, year: String) {
+    func enqueueDownload(
+        link: String,
+        album: String,
+        albumArtist: String,
+        year: String,
+        kind: String = "album"
+    ) {
         let request = AriaDownloadRequest(
             link: link.trimmingCharacters(in: .whitespacesAndNewlines),
             album: album.trimmingCharacters(in: .whitespacesAndNewlines),
             albumArtist: albumArtist.trimmingCharacters(in: .whitespacesAndNewlines),
-            year: year.trimmingCharacters(in: .whitespacesAndNewlines)
+            year: year.trimmingCharacters(in: .whitespacesAndNewlines),
+            kind: kind
         )
 
         downloadQueue.append(DownloadQueueItem(request: request))
@@ -538,6 +558,40 @@ final class MacPlayerViewModel: ObservableObject {
         isSearchingYouTubeMusic = false
     }
 
+    func searchYouTubeMusic(query: String, category: YouTubeMusicSearchCategory) async {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            youtubeMusicResults = []
+            youtubeMusicSongResults = []
+            youtubeMusicPlaylistResults = []
+            youtubeMusicSearchError = nil
+            return
+        }
+
+        isSearchingYouTubeMusic = true
+        youtubeMusicSearchError = nil
+        youtubeMusicResults = []
+        youtubeMusicSongResults = []
+        youtubeMusicPlaylistResults = []
+        do {
+            switch category {
+            case .albums:
+                youtubeMusicResults = try await youtubeMusicSearchClient.searchAlbums(query: query)
+            case .songs:
+                youtubeMusicSongResults = try await youtubeMusicSearchClient.searchSongs(query: query)
+            case .playlists:
+                youtubeMusicPlaylistResults = try await youtubeMusicSearchClient.searchPlaylists(query: query)
+            }
+            let isEmpty = youtubeMusicResults.isEmpty
+                && youtubeMusicSongResults.isEmpty
+                && youtubeMusicPlaylistResults.isEmpty
+            youtubeMusicSearchError = isEmpty ? "No YouTube Music \(category.rawValue.lowercased()) matched that search." : nil
+        } catch {
+            youtubeMusicSearchError = error.localizedDescription
+        }
+        isSearchingYouTubeMusic = false
+    }
+
     func enqueueDownload(_ result: YouTubeMusicAlbumResult) {
         enqueueDownload(
             link: result.downloadLink,
@@ -545,6 +599,44 @@ final class MacPlayerViewModel: ObservableObject {
             albumArtist: result.artist,
             year: result.year
         )
+    }
+
+    func enqueueDownload(_ result: YouTubeMusicSongResult) {
+        enqueueDownload(
+            link: result.downloadLink,
+            album: result.title,
+            albumArtist: result.artist,
+            year: "",
+            kind: "song"
+        )
+    }
+
+    func enqueueDownload(_ result: YouTubeMusicPlaylistResult) {
+        enqueueDownload(
+            link: result.downloadLink,
+            album: result.title,
+            albumArtist: result.curator,
+            year: "",
+            kind: "playlist"
+        )
+    }
+
+    func isSongDownloaded(_ result: YouTubeMusicSongResult) -> Bool {
+        let title = Self.normalizedWords(in: result.title).joined(separator: " ")
+        let artist = Self.canonicalArtistName(result.artist)
+        return catalog.contains { track in
+            Self.normalizedWords(in: track.title).joined(separator: " ") == title
+                && Self.canonicalArtistName(track.artist) == artist
+        }
+    }
+
+    func deleteAlbum(_ album: AriaAlbum) async throws -> AlbumDeletionResult {
+        guard let track = album.tracks.first else {
+            throw AriaServerError.invalidResponse
+        }
+        let result = try await serverClient.deleteAlbum(containing: track)
+        await refreshCatalog()
+        return result
     }
 
     func isAlbumDownloaded(_ result: YouTubeMusicAlbumResult) -> Bool {
@@ -1146,7 +1238,7 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     private static func albums(from catalog: [Track]) -> [AriaAlbum] {
-        Dictionary(grouping: catalog) { track in
+        Dictionary(grouping: catalog.filter { $0.isStandalone != true }) { track in
             track.album.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
         }
         .values

@@ -238,6 +238,25 @@ struct AriaServerClient {
         throw AriaServerError.unreachable(failures)
     }
 
+    func deleteAlbum(containing track: Track) async throws -> AlbumDeletionResult {
+        var failures: [String] = []
+        for baseURL in baseURLs {
+            do {
+                let endpoint = trackEndpoint(for: track, baseURL: baseURL)
+                    .appendingPathComponent("album")
+                let (data, _) = try await sendRequest(
+                    to: endpoint,
+                    method: "DELETE",
+                    timeoutInterval: 30
+                )
+                return try JSONDecoder().decode(AlbumDeletionResult.self, from: data)
+            } catch {
+                failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+        throw AriaServerError.unreachable(failures)
+    }
+
     private func fetchTrackPage(offset: Int, limit: Int, baseURL: URL) async throws -> TracksPage {
         var components = URLComponents(
             url: tracksEndpoint(baseURL: baseURL),
@@ -392,6 +411,7 @@ struct AriaDownloadRequest: Encodable {
     var album: String
     var albumArtist: String
     var year: String
+    var kind: String = "album"
 }
 
 struct AriaDownloadJob: Decodable, Identifiable, Equatable {
@@ -403,8 +423,12 @@ struct AriaDownloadJob: Decodable, Identifiable, Equatable {
     var album: String
     var albumArtist: String
     var year: String
+    var kind: String?
     var filesStarted: Int
     var newFiles: Int?
+    var reusedFiles: Int?
+    var playlistID: String?
+    var playlistTrackCount: Int?
     var error: String?
     var outputTail: [String]
 
@@ -423,6 +447,12 @@ struct AriaDownloadJob: Decodable, Identifiable, Equatable {
     var progressFraction: Double {
         min(max(progress, 0), 1)
     }
+}
+
+struct AlbumDeletionResult: Decodable {
+    var deletedFiles: Int
+    var deletedTrackIDs: [String]
+    var updatedPlaylists: Int
 }
 
 private struct SingleTrackResponse: Decodable {
@@ -570,6 +600,7 @@ private struct ServerTrackPayload: Decodable {
     var streamURLString: String?
     var artworkURLString: String?
     var isExplicit: Bool
+    var isStandalone: Bool
     var artwork: ArtworkPalette?
 
     var identitySeed: String {
@@ -606,6 +637,7 @@ private struct ServerTrackPayload: Decodable {
         }
 
         isExplicit = container.decodeLossyBool(forKeyNames: ["isExplicit", "explicit", "is_explicit"]) ?? false
+        isStandalone = container.decodeLossyBool(forKeyNames: ["isStandalone", "standalone", "is_standalone"]) ?? false
         artwork = container.decodeArtworkPalette()
     }
 
@@ -629,7 +661,8 @@ private struct ServerTrackPayload: Decodable {
             artwork: artwork ?? ArtworkFactory.palette(for: seed),
             streamURL: resolvedStreamURL,
             artworkURL: resolvedArtworkURL,
-            isExplicit: isExplicit
+            isExplicit: isExplicit,
+            isStandalone: isStandalone
         )
     }
 
