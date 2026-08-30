@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var selectedAlbumID: String?
     @State private var searchText = ""
     @State private var isDownloadSheetPresented = false
+    @State private var isSidebarVisible = true
     @State private var playerBarHeight: CGFloat = 96
 
     private var isSearching: Bool {
@@ -20,20 +21,34 @@ struct ContentView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-                .frame(width: 220)
-
-            Group {
-                if selectedDestination == .player {
-                    FullscreenPlayerView()
-                } else {
-                    libraryDetail
+        ZStack(alignment: .topLeading) {
+            HStack(spacing: 0) {
+                if isSidebarVisible {
+                    sidebar
+                        .frame(width: 220)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                 }
+
+                Group {
+                    if selectedDestination == .player {
+                        FullscreenPlayerView()
+                    } else {
+                        libraryDetail
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if !isSidebarVisible {
+                sidebarToggleButton
+                    .padding(.leading, 12)
+                    .padding(.top, 12)
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
         .background(Color.ariaBackground)
+        .animation(.easeInOut(duration: 0.2), value: isSidebarVisible)
         .preferredColorScheme(.dark)
         .sheet(
             isPresented: Binding(
@@ -140,6 +155,21 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
+                ZStack {
+                    Image(nsImage: NSApplication.shared.applicationIconImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 48, height: 48)
+                        .accessibilityLabel("Aria")
+
+                    HStack {
+                        Spacer()
+                        sidebarToggleButton
+                    }
+                }
+                .frame(height: 64)
+                .padding(.horizontal, 10)
+
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
                         sidebarNavigationButton(
@@ -240,6 +270,22 @@ struct ContentView: View {
                 .frame(width: 1)
                 .ignoresSafeArea()
         }
+    }
+
+    private var sidebarToggleButton: some View {
+        Button {
+            isSidebarVisible.toggle()
+        } label: {
+            Image(systemName: "sidebar.left")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.ariaTextPrimary)
+                .frame(width: 30, height: 30)
+                .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("s", modifiers: [.command, .control])
+        .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+        .accessibilityLabel(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
     }
 
     private func sidebarNavigationButton(

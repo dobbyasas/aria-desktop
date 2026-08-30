@@ -1,6 +1,14 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.9.0
+Created: 2026-08-30
+
+Added:
+- Added the Aria logo as a centered, text-free header at the top of the Mac sidebar.
+- Added a persistent sidebar control with hide/show behavior and a Control-Command-S keyboard shortcut.
+
+
 Version 1.8.2
 Created: 2026-08-30
 
