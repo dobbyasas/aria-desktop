@@ -194,8 +194,8 @@ private struct FullscreenPlayerControls: View {
         VStack(spacing: 11) {
             progressArea
 
-            HStack(spacing: 20) {
-                HStack(spacing: 18) {
+            ZStack {
+                HStack(spacing: 20) {
                     playerButton(
                         systemImage: "shuffle",
                         isActive: player.isShuffleEnabled,
@@ -204,18 +204,6 @@ private struct FullscreenPlayerControls: View {
                         player.toggleShuffle()
                     }
 
-                    playerButton(
-                        systemImage: player.repeatMode.systemImage,
-                        isActive: player.repeatMode != .off,
-                        help: player.repeatMode.title
-                    ) {
-                        player.cycleRepeatMode()
-                    }
-                }
-
-                Spacer(minLength: 10)
-
-                HStack(spacing: 20) {
                     playerButton(systemImage: "backward.fill", help: "Previous") {
                         player.previous()
                     }
@@ -237,11 +225,15 @@ private struct FullscreenPlayerControls: View {
                         player.next()
                     }
                     .disabled(!player.canSkipToNextTrack)
-                }
 
-                Spacer(minLength: 10)
+                    playerButton(
+                        systemImage: player.repeatMode.systemImage,
+                        isActive: player.repeatMode != .off,
+                        help: player.repeatMode.title
+                    ) {
+                        player.cycleRepeatMode()
+                    }
 
-                HStack(spacing: 16) {
                     playerButton(
                         systemImage: "waveform",
                         isActive: player.isAudioVisualizerEnabled,
@@ -249,7 +241,10 @@ private struct FullscreenPlayerControls: View {
                     ) {
                         player.toggleAudioVisualizer()
                     }
+                }
 
+                HStack {
+                    Spacer()
                     HStack(spacing: 8) {
                         Image(systemName: player.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                             .foregroundStyle(Color.ariaTextPrimary.opacity(0.7))
