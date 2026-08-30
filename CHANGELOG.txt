@@ -1,6 +1,14 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.8.2
+Created: 2026-08-30
+
+Changed:
+- Replaced the system NavigationSplitView with an edge-to-edge app split so macOS no longer renders the sidebar as an inset rounded pane.
+- Anchored the sidebar directly to the window’s top, left, and bottom edges with a fixed divider into the Player content.
+
+
 Version 1.8.1
 Created: 2026-08-30
 

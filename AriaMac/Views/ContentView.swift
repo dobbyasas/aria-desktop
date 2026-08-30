@@ -20,9 +20,10 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             sidebar
-        } detail: {
+                .frame(width: 220)
+
             Group {
                 if selectedDestination == .player {
                     FullscreenPlayerView()
@@ -30,7 +31,9 @@ struct ContentView: View {
                     libraryDetail
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(Color.ariaBackground)
         .preferredColorScheme(.dark)
         .sheet(
             isPresented: Binding(
@@ -237,8 +240,6 @@ struct ContentView: View {
                 .frame(width: 1)
                 .ignoresSafeArea()
         }
-        .navigationTitle("Aria")
-        .navigationSplitViewColumnWidth(min: 180, ideal: 220)
     }
 
     private func sidebarNavigationButton(
