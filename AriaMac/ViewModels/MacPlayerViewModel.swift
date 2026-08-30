@@ -81,6 +81,17 @@ struct DownloadQueueItem: Identifiable {
             return errorMessage
         }
 
+        if status == .succeeded, let job {
+            let newCount = job.newFiles ?? 0
+            let reusedCount = job.reusedFiles ?? 0
+            if let playlistCount = job.playlistTrackCount {
+                return "Playlist created with \(playlistCount) songs — \(newCount) new, \(reusedCount) reused"
+            }
+            if reusedCount > 0 && newCount == 0 {
+                return "Already in your Aria library"
+            }
+        }
+
         if let job, !job.message.isEmpty {
             return job.message
         }
