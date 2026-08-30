@@ -10,6 +10,7 @@ Added:
 
 Changed:
 - Standalone songs and playlist downloads remain in the song library without creating partial albums.
+- The Albums screen now includes a playable Standalone Songs section for those downloads.
 - Download queue labels now cover albums, songs, and playlists.
 
 Version 1.10.0

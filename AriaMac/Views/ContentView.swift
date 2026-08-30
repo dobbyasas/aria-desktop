@@ -403,7 +403,11 @@ struct ContentView: View {
                         selectedAlbumID = nil
                     }
                 } else {
-                    AlbumsView(albums: filteredAlbums, isSearching: isSearching) { album in
+                    AlbumsView(
+                        albums: filteredAlbums,
+                        standaloneTracks: filteredStandaloneTracks,
+                        isSearching: isSearching
+                    ) { album in
                         selectedAlbumID = album.id
                     }
                 }
@@ -428,6 +432,16 @@ struct ContentView: View {
         let tokens = searchText.casefoldedTokens
         return player.albums.filter { album in
             let text = "\(album.title) \(album.artist)".localizedLowercase
+            return tokens.allSatisfy { text.contains($0) }
+        }
+    }
+
+    private var filteredStandaloneTracks: [Track] {
+        let tracks = player.catalog.filter { $0.isStandalone == true }
+        guard isSearching else { return tracks }
+        let tokens = searchText.casefoldedTokens
+        return tracks.filter { track in
+            let text = "\(track.title) \(track.artist) \(track.album)".localizedLowercase
             return tokens.allSatisfy { text.contains($0) }
         }
     }
@@ -631,6 +645,7 @@ struct SongsView: View {
 
 struct AlbumsView: View {
     let albums: [AriaAlbum]
+    let standaloneTracks: [Track]
     let isSearching: Bool
     let onOpenAlbum: (AriaAlbum) -> Void
 
@@ -639,7 +654,7 @@ struct AlbumsView: View {
     ]
 
     var body: some View {
-        if albums.isEmpty {
+        if albums.isEmpty && standaloneTracks.isEmpty {
             EmptyStateView(
                 title: isSearching ? "No albums found" : "No albums yet",
                 message: isSearching ? "Try a different search." : "Albums appear after Aria loads songs with album metadata.",
@@ -648,9 +663,37 @@ struct AlbumsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                    ForEach(albums) { album in
-                        AlbumCard(album: album, onOpen: onOpenAlbum)
+                VStack(alignment: .leading, spacing: 24) {
+                    if !albums.isEmpty {
+                        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+                            ForEach(albums) { album in
+                                AlbumCard(album: album, onOpen: onOpenAlbum)
+                            }
+                        }
+                    }
+
+                    if !standaloneTracks.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Standalone Songs")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(Color.ariaTextPrimary)
+
+                            Text("Individual songs and playlist downloads stay here instead of creating incomplete albums.")
+                                .font(.caption)
+                                .foregroundStyle(Color.ariaTextSecondary)
+
+                            TrackListHeader(showAlbum: false)
+                            LazyVStack(spacing: 2) {
+                                ForEach(Array(standaloneTracks.enumerated()), id: \.element.id) { index, track in
+                                    TrackRow(
+                                        track: track,
+                                        source: standaloneTracks,
+                                        index: index + 1,
+                                        showAlbum: false
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 24)
