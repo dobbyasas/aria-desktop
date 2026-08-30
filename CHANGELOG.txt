@@ -1,6 +1,13 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.8.1
+Created: 2026-08-30
+
+Changed:
+- Removed the outer horizontal and top margin around the Mac sidebar content so navigation rows sit flush with the sidebar edges.
+
+
 Version 1.8.0
 Created: 2026-08-30
 

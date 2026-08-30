@@ -209,8 +209,6 @@ struct ContentView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.top, 8)
                     .padding(.bottom, 16)
                 }
 
