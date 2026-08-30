@@ -1,6 +1,14 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.7.2
+Created: 2026-08-30
+
+Changed:
+- Rebuilt the sidebar as a solid, edge-to-edge app surface with an attached status footer and a clear divider from the main content.
+- Replaced floating pill selections with integrated full-width highlights and a slim accent marker.
+
+
 Version 1.7.1
 Created: 2026-08-30
 

@@ -132,86 +132,88 @@ struct ContentView: View {
     }
 
     private var sidebar: some View {
-        List {
-            Section {
-                sidebarNavigationButton(
-                    title: "Player",
-                    systemImage: "play.square.fill",
-                    destination: .player
-                )
+        ZStack(alignment: .trailing) {
+            Color.ariaPanel
+                .ignoresSafeArea()
 
-                sidebarNavigationButton(
-                    title: "Albums",
-                    systemImage: "square.stack.fill",
-                    destination: .albums
-                )
-
-                Button {
-                    isDownloadSheetPresented = true
-                } label: {
-                    HStack(spacing: 9) {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 20)
-
-                        Text("Download Music")
-                            .font(.system(size: 14, weight: .medium))
-
-                        Spacer()
-                    }
-                    .foregroundStyle(Color.ariaAccent)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                if !player.downloadQueue.isEmpty {
-                    SidebarDownloadStatus(
-                        activeItem: player.activeDownloadItem,
-                        totalETA: player.downloadQueueEstimatedRemaining,
-                        waitingCount: player.waitingDownloadCount
-                    )
-                }
-            }
-
-            Section("Playlists") {
-                Button {
-                    let playlist = player.createPlaylist()
-                    selectedAlbumID = nil
-                    selectedDestination = .playlist(playlist.id)
-                } label: {
-                    SidebarNavigationRow(
-                        title: "New Playlist",
-                        systemImage: "plus",
-                        isSelected: false,
-                        usesAccent: true
-                    )
-                }
-                .buttonStyle(.plain)
-
-                ForEach(sortedPlaylists) { playlist in
-                    let destination = MacSidebarDestination.playlist(playlist.id)
-
-                    Button {
-                        selectedAlbumID = nil
-                        selectedDestination = destination
-                    } label: {
-                        SidebarPlaylistRow(
-                            playlist: playlist,
-                            isSelected: selectedDestination == destination
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(
-                        sidebarRowBackground(isSelected: selectedDestination == destination)
-                    )
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        sidebarNavigationButton(
+                            title: "Player",
+                            systemImage: "play.square.fill",
+                            destination: .player
+                        )
+
+                        sidebarNavigationButton(
+                            title: "Albums",
+                            systemImage: "square.stack.fill",
+                            destination: .albums
+                        )
+
+                        Button {
+                            isDownloadSheetPresented = true
+                        } label: {
+                            SidebarNavigationRow(
+                                title: "Download Music",
+                                systemImage: "arrow.down.circle",
+                                isSelected: false,
+                                usesAccent: true
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        if !player.downloadQueue.isEmpty {
+                            SidebarDownloadStatus(
+                                activeItem: player.activeDownloadItem,
+                                totalETA: player.downloadQueueEstimatedRemaining,
+                                waitingCount: player.waitingDownloadCount
+                            )
+                            .padding(.horizontal, 9)
+                            .padding(.top, 4)
+                        }
+
+                        Text("Playlists")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.ariaTextSecondary.opacity(0.68))
+                            .padding(.horizontal, 9)
+                            .padding(.top, 18)
+                            .padding(.bottom, 4)
+
+                        Button {
+                            let playlist = player.createPlaylist()
+                            selectedAlbumID = nil
+                            selectedDestination = .playlist(playlist.id)
+                        } label: {
+                            SidebarNavigationRow(
+                                title: "New Playlist",
+                                systemImage: "plus",
+                                isSelected: false,
+                                usesAccent: true
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        ForEach(sortedPlaylists) { playlist in
+                            let destination = MacSidebarDestination.playlist(playlist.id)
+
+                            Button {
+                                selectedAlbumID = nil
+                                selectedDestination = destination
+                            } label: {
+                                SidebarPlaylistRow(
+                                    playlist: playlist,
+                                    isSelected: selectedDestination == destination
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+                }
+
                 Divider()
                     .overlay(Color.ariaDivider)
 
@@ -231,7 +233,11 @@ struct ContentView: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Aria \(AriaRelease.displayText), \(serverStatusTitle)")
             }
-            .background(.regularMaterial)
+
+            Rectangle()
+                .fill(Color.ariaDivider)
+                .frame(width: 1)
+                .ignoresSafeArea()
         }
         .navigationTitle("Aria")
         .navigationSplitViewColumnWidth(min: 180, ideal: 220)
@@ -255,13 +261,6 @@ struct ContentView: View {
             )
         }
         .buttonStyle(.plain)
-        .listRowBackground(sidebarRowBackground(isSelected: isSelected))
-    }
-
-    private func sidebarRowBackground(isSelected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 7, style: .continuous)
-            .fill(isSelected ? Color.ariaAccent.opacity(0.18) : Color.clear)
-            .padding(.vertical, 1)
     }
 
     private var header: some View {
@@ -491,8 +490,22 @@ struct SidebarNavigationRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .background(sidebarSelectionBackground)
         .contentShape(Rectangle())
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var sidebarSelectionBackground: some View {
+        ZStack(alignment: .leading) {
+            Rectangle()
+                .fill(isSelected ? Color.ariaAccent.opacity(0.13) : Color.clear)
+
+            if isSelected {
+                Rectangle()
+                    .fill(Color.ariaAccent)
+                    .frame(width: 2)
+            }
+        }
     }
 }
 
@@ -513,6 +526,18 @@ struct SidebarPlaylistRow: View {
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
+        .background {
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(isSelected ? Color.ariaAccent.opacity(0.13) : Color.clear)
+
+                if isSelected {
+                    Rectangle()
+                        .fill(Color.ariaAccent)
+                        .frame(width: 2)
+                }
+            }
+        }
         .contentShape(Rectangle())
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
