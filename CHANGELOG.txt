@@ -1,6 +1,18 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.8.0
+Created: 2026-08-30
+
+Added:
+- Added Lyrics and Queue toggles beside the volume control in the fullscreen Player.
+- Added an interactive queue panel that can form a third Player-stage column beside artwork and lyrics.
+
+Changed:
+- Moved the fullscreen progress slider beneath the centered transport controls and reduced its maximum width.
+- Made the Player stage dynamically expand and collapse between one, two, and three columns.
+
+
 Version 1.7.2
 Created: 2026-08-30
 
