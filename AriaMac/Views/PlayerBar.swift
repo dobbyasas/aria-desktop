@@ -1,5 +1,318 @@
 import SwiftUI
 
+struct FullscreenPlayerView: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+    @State private var artworkPalette: ArtworkPalette?
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            playerBackground
+
+            VStack(spacing: 0) {
+                if let playbackError = player.playbackErrorMessage {
+                    InlinePlaybackError(message: playbackError)
+                }
+
+                if let track = player.currentTrack {
+                    playerStage(for: track)
+                } else {
+                    emptyPlayerStage
+                }
+
+                FullscreenPlayerControls()
+            }
+
+            if player.isAudioVisualizerEnabled {
+                AudioVisualizer(
+                    levels: player.spectrumLevels,
+                    hasTrack: player.currentTrack != nil
+                )
+                .frame(height: 76)
+                .padding(.horizontal, 18)
+                .padding(.bottom, 128)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .accessibilityHidden(true)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.ariaBackground)
+        .task(id: player.currentTrack?.artworkURL) {
+            await loadArtworkPalette()
+        }
+        .animation(.easeOut(duration: 0.22), value: player.isAudioVisualizerEnabled)
+    }
+
+    @ViewBuilder
+    private var playerBackground: some View {
+        if let track = player.currentTrack {
+            let palette = artworkPalette ?? track.artwork
+
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(hex: palette.topHex).opacity(0.78),
+                        Color(hex: palette.bottomHex).opacity(0.58),
+                        Color.ariaBackground
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                RadialGradient(
+                    colors: [
+                        Color(hex: palette.topHex).opacity(0.28),
+                        .clear
+                    ],
+                    center: .topLeading,
+                    startRadius: 20,
+                    endRadius: 680
+                )
+
+                Color.black.opacity(0.28)
+            }
+            .ignoresSafeArea()
+        } else {
+            LinearGradient(
+                colors: [Color.ariaPanelRaised, Color.ariaBackground],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    private func playerStage(for track: Track) -> some View {
+        GeometryReader { proxy in
+            let columnWidth = max((proxy.size.width - 145) / 2, 230)
+            let artworkSize = min(min(columnWidth - 34, proxy.size.height * 0.68), 440)
+
+            HStack(spacing: 36) {
+                VStack(spacing: 16) {
+                    Spacer(minLength: 8)
+
+                    ArtworkView(
+                        track: track,
+                        size: max(180, artworkSize),
+                        cornerRadius: 14
+                    )
+                    .shadow(color: .black.opacity(0.32), radius: 28, x: 0, y: 18)
+
+                    VStack(spacing: 6) {
+                        Text(track.title)
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(Color.ariaTextPrimary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+
+                        Text(track.artist)
+                            .font(.title3.weight(.medium))
+                            .foregroundStyle(Color.ariaTextPrimary.opacity(0.72))
+                            .lineLimit(1)
+
+                        Text(track.album)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.ariaTextPrimary.opacity(0.48))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: columnWidth - 24)
+
+                    Spacer(minLength: 8)
+                }
+                .frame(width: columnWidth)
+
+                Rectangle()
+                    .fill(.white.opacity(0.11))
+                    .frame(width: 1)
+                    .padding(.vertical, 24)
+
+                MacKaraokeLyricsView(track: track, showsChrome: false)
+                    .frame(width: columnWidth)
+                    .background(.black.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(.white.opacity(0.09), lineWidth: 1)
+                    )
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 22)
+            .padding(.bottom, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var emptyPlayerStage: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            Image(systemName: "music.note")
+                .font(.system(size: 58, weight: .semibold))
+                .foregroundStyle(Color.ariaAccent)
+
+            Text("Choose something to play")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(Color.ariaTextPrimary)
+
+            Text("Open an album or playlist from the sidebar.")
+                .font(.title3)
+                .foregroundStyle(Color.ariaTextSecondary)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func loadArtworkPalette() async {
+        guard let track = player.currentTrack else {
+            artworkPalette = nil
+            return
+        }
+
+        guard let artworkURL = track.artworkURL else {
+            artworkPalette = track.artwork
+            return
+        }
+
+        let palette = await AriaArtworkCache.shared.palette(
+            for: artworkURL,
+            symbolName: track.artwork.symbolName
+        )
+
+        guard !Task.isCancelled, player.currentTrack?.id == track.id else { return }
+
+        withAnimation(.easeOut(duration: 0.28)) {
+            artworkPalette = palette ?? track.artwork
+        }
+    }
+}
+
+private struct FullscreenPlayerControls: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+
+    var body: some View {
+        VStack(spacing: 11) {
+            progressArea
+
+            HStack(spacing: 20) {
+                HStack(spacing: 18) {
+                    playerButton(
+                        systemImage: "shuffle",
+                        isActive: player.isShuffleEnabled,
+                        help: player.isShuffleEnabled ? "Turn shuffle off" : "Shuffle queue"
+                    ) {
+                        player.toggleShuffle()
+                    }
+
+                    playerButton(
+                        systemImage: player.repeatMode.systemImage,
+                        isActive: player.repeatMode != .off,
+                        help: player.repeatMode.title
+                    ) {
+                        player.cycleRepeatMode()
+                    }
+                }
+
+                Spacer(minLength: 10)
+
+                HStack(spacing: 20) {
+                    playerButton(systemImage: "backward.fill", help: "Previous") {
+                        player.previous()
+                    }
+                    .disabled(!player.canSkipToPreviousTrack)
+
+                    Button {
+                        player.playPause()
+                    } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 23, weight: .bold))
+                            .frame(width: 54, height: 54)
+                            .background(Circle().fill(Color.ariaTextPrimary))
+                            .foregroundStyle(Color.ariaBackground)
+                    }
+                    .buttonStyle(.plain)
+                    .help(player.isPlaying ? "Pause" : "Play")
+
+                    playerButton(systemImage: "forward.fill", help: "Next") {
+                        player.next()
+                    }
+                    .disabled(!player.canSkipToNextTrack)
+                }
+
+                Spacer(minLength: 10)
+
+                HStack(spacing: 16) {
+                    playerButton(
+                        systemImage: "waveform",
+                        isActive: player.isAudioVisualizerEnabled,
+                        help: player.isAudioVisualizerEnabled ? "Hide visualizer" : "Show visualizer"
+                    ) {
+                        player.toggleAudioVisualizer()
+                    }
+
+                    HStack(spacing: 8) {
+                        Image(systemName: player.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .foregroundStyle(Color.ariaTextPrimary.opacity(0.7))
+
+                        Slider(value: $player.volume, in: 0...1)
+                            .tint(Color.ariaTextPrimary)
+                            .frame(width: 118)
+                    }
+                    .help("Volume")
+                }
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 12)
+        .padding(.bottom, 16)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(.white.opacity(0.10))
+                .frame(height: 1)
+        }
+    }
+
+    private var progressArea: some View {
+        HStack(spacing: 10) {
+            Text(player.elapsed.ariaClockText)
+                .frame(width: 46, alignment: .trailing)
+
+            Slider(
+                value: Binding(
+                    get: { player.progress },
+                    set: { player.seek(toProgress: $0) }
+                ),
+                in: 0...1
+            )
+            .tint(Color.ariaTextPrimary)
+            .disabled(player.currentTrack == nil)
+
+            Text((player.currentTrack?.duration ?? 0).ariaDurationText)
+                .frame(width: 46, alignment: .leading)
+        }
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(Color.ariaTextPrimary.opacity(0.62))
+    }
+
+    private func playerButton(
+        systemImage: String,
+        isActive: Bool = false,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(isActive ? Color.ariaAccent : Color.ariaTextPrimary.opacity(0.72))
+                .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
 struct PlayerBar: View {
     @EnvironmentObject private var player: MacPlayerViewModel
 
@@ -213,6 +526,7 @@ struct MacKaraokeLyricsView: View {
     @EnvironmentObject private var player: MacPlayerViewModel
 
     let track: Track
+    var showsChrome = true
 
     @State private var lyrics: TrackLyrics?
     @State private var errorMessage: String?
@@ -223,6 +537,20 @@ struct MacKaraokeLyricsView: View {
     }
 
     var body: some View {
+        Group {
+            if showsChrome {
+                karaokeChrome
+            } else {
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: track.id) {
+            await loadLyrics()
+        }
+    }
+
+    private var karaokeChrome: some View {
         ZStack {
             LinearGradient(
                 colors: [
@@ -250,9 +578,6 @@ struct MacKaraokeLyricsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.ariaBackground)
-        .task(id: track.id) {
-            await loadLyrics()
-        }
     }
 
     private var header: some View {
@@ -346,7 +671,7 @@ struct MacKaraokeLyricsView: View {
                                 Text(line.text)
                                     .font(
                                         .system(
-                                            size: isActive ? 42 : 30,
+                                            size: isActive ? (showsChrome ? 42 : 34) : (showsChrome ? 30 : 24),
                                             weight: isActive ? .bold : .semibold,
                                             design: .default
                                         )
@@ -368,7 +693,7 @@ struct MacKaraokeLyricsView: View {
                     } else {
                         ForEach(Array(lyrics.plainLines.enumerated()), id: \.offset) { _, line in
                             Text(line)
-                                .font(.system(size: 30, weight: .semibold))
+                                .font(.system(size: showsChrome ? 30 : 24, weight: .semibold))
                                 .foregroundStyle(Color.ariaTextPrimary.opacity(0.88))
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity, alignment: .center)
@@ -382,9 +707,9 @@ struct MacKaraokeLyricsView: View {
                             .padding(.top, 18)
                     }
                 }
-                .frame(maxWidth: 980)
-                .padding(.horizontal, 56)
-                .padding(.vertical, 180)
+                .frame(maxWidth: showsChrome ? 980 : 620)
+                .padding(.horizontal, showsChrome ? 56 : 30)
+                .padding(.vertical, showsChrome ? 180 : 100)
                 .frame(maxWidth: .infinity)
             }
             .onChange(of: activeLineID) { _, newLineID in
@@ -407,7 +732,7 @@ struct MacKaraokeLyricsView: View {
                 .font(.system(size: 52, weight: .semibold))
                 .foregroundStyle(Color.ariaAccent)
             Text(title)
-                .font(.system(size: 34, weight: .semibold))
+                .font(.system(size: showsChrome ? 34 : 27, weight: .semibold))
                 .foregroundStyle(Color.ariaTextPrimary)
             Text(message)
                 .font(.title3)

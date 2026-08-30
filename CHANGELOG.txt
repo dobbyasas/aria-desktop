@@ -1,6 +1,20 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.7.0
+Created: 2026-08-30
+
+Added:
+- Added a dedicated Player tab with a half-screen cover, half-screen synchronized lyrics, and a cover-derived ambient background.
+- Added a controls-only fullscreen player strip with shuffle, repeat, previous, play/pause, next, visualizer, progress, and volume controls.
+- Added playlists directly to the sidebar with persistent last-played ordering and a New Playlist action above them.
+
+Changed:
+- Reduced the primary sidebar to Player, Albums, and Download Music.
+- Moved connection status beside the version number at the bottom of the sidebar.
+- Kept artwork and song identity in the Player stage instead of repeating them in its bottom controls.
+
+
 Version 1.6.0
 Created: 2026-08-30
 

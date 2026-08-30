@@ -103,6 +103,7 @@ final class MacPlayerViewModel: ObservableObject {
     @Published private(set) var catalog: [Track] = []
     @Published private(set) var albums: [AriaAlbum] = []
     @Published private(set) var playlists: [AriaPlaylist] = []
+    @Published private(set) var playlistLastPlayedAt: [UUID: TimeInterval] = [:]
     @Published private(set) var queue: [Track] = []
     @Published private(set) var isCatalogLoading = false
     @Published private(set) var catalogErrorMessage: String?
@@ -141,6 +142,7 @@ final class MacPlayerViewModel: ObservableObject {
     private let youtubeMusicSearchClient = YouTubeMusicSearchClient()
 
     private static let spectrumBandCount = 36
+    private static let playlistHistoryDefaultsKey = "aria.mac.playlistLastPlayedAt"
     private static let restingSpectrumLevels = Array(
         repeating: Float(0.04),
         count: spectrumBandCount
@@ -148,6 +150,7 @@ final class MacPlayerViewModel: ObservableObject {
 
     init(serverClient: AriaServerClient = AriaServerClient()) {
         self.serverClient = serverClient
+        playlistLastPlayedAt = Self.loadPlaylistHistory()
 
         Task { [weak self] in
             await self?.refreshCatalog()
@@ -234,6 +237,20 @@ final class MacPlayerViewModel: ObservableObject {
         beginPlayback(for: freshestVersion(of: track))
     }
 
+    func play(_ playlist: AriaPlaylist) {
+        guard let firstTrack = playlist.tracks.first else { return }
+        play(firstTrack, from: playlist)
+    }
+
+    func play(_ track: Track, from playlist: AriaPlaylist) {
+        recordPlaylistPlayback(playlist.id)
+        play(track, from: playlist.tracks)
+    }
+
+    func playlistRecency(for playlistID: UUID) -> TimeInterval {
+        playlistLastPlayedAt[playlistID] ?? 0
+    }
+
     @discardableResult
     func createPlaylist() -> AriaPlaylist {
         let number = playlists.filter { $0.title.hasPrefix("New Playlist") }.count + 1
@@ -261,6 +278,29 @@ final class MacPlayerViewModel: ObservableObject {
     private func syncPlaylist(_ playlist: AriaPlaylist) {
         Task { [serverClient] in
             _ = try? await serverClient.savePlaylist(playlist)
+        }
+    }
+
+    private func recordPlaylistPlayback(_ playlistID: UUID) {
+        playlistLastPlayedAt[playlistID] = Date().timeIntervalSince1970
+        let storedHistory = Dictionary(
+            uniqueKeysWithValues: playlistLastPlayedAt.map { ($0.key.uuidString, $0.value) }
+        )
+        UserDefaults.standard.set(storedHistory, forKey: Self.playlistHistoryDefaultsKey)
+    }
+
+    private static func loadPlaylistHistory() -> [UUID: TimeInterval] {
+        let storedHistory = UserDefaults.standard.dictionary(forKey: playlistHistoryDefaultsKey) ?? [:]
+
+        return storedHistory.reduce(into: [:]) { result, entry in
+            guard
+                let playlistID = UUID(uuidString: entry.key),
+                let timestamp = entry.value as? NSNumber
+            else {
+                return
+            }
+
+            result[playlistID] = timestamp.doubleValue
         }
     }
 

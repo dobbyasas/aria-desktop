@@ -1,52 +1,19 @@
 import SwiftUI
 import AppKit
 
-enum LibrarySection: String, CaseIterable, Identifiable {
-    case songs
+private enum MacSidebarDestination: Hashable {
+    case player
     case albums
-    case playlists
-    case queue
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .songs:
-            "Songs"
-        case .albums:
-            "Albums"
-        case .playlists:
-            "Playlists"
-        case .queue:
-            "Queue"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .songs:
-            "music.note.list"
-        case .albums:
-            "square.stack"
-        case .playlists:
-            "music.note.list"
-        case .queue:
-            "text.line.first.and.arrowtriangle.forward"
-        }
-    }
+    case playlist(UUID)
 }
 
 struct ContentView: View {
     @EnvironmentObject private var player: MacPlayerViewModel
-    @State private var selectedSection: LibrarySection = .songs
+    @State private var selectedDestination: MacSidebarDestination = .player
     @State private var selectedAlbumID: String?
     @State private var searchText = ""
     @State private var isDownloadSheetPresented = false
     @State private var playerBarHeight: CGFloat = 96
-
-    private var activeSection: LibrarySection {
-        selectedSection
-    }
 
     private var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -56,56 +23,11 @@ struct ContentView: View {
         NavigationSplitView {
             sidebar
         } detail: {
-            ZStack(alignment: .bottom) {
-                LinearGradient(
-                    colors: [Color.ariaPanel.opacity(0.58), Color.ariaBackground],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
-                VStack(spacing: 0) {
-                    ZStack {
-                        VStack(spacing: 0) {
-                            header
-
-                            if let error = player.catalogErrorMessage, !player.catalog.isEmpty {
-                                InlineStatusBanner(
-                                    message: error,
-                                    systemImage: "wifi.exclamationmark",
-                                    actionTitle: "Retry"
-                                ) {
-                                    Task { await player.refreshCatalog() }
-                                }
-                                .padding(.horizontal, 24)
-                                .padding(.bottom, 12)
-                            }
-
-                            content
-                        }
-
-                        if player.isLyricsPresented, let track = player.currentTrack {
-                            MacKaraokeLyricsView(track: track)
-                                .transition(.opacity.combined(with: .scale(scale: 0.995)))
-                                .zIndex(4)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .animation(.easeInOut(duration: 0.22), value: player.isLyricsPresented)
-
-                    PlayerBar()
-                        .background {
-                            GeometryReader { geometry in
-                                Color.clear.preference(
-                                    key: PlayerBarHeightPreferenceKey.self,
-                                    value: geometry.size.height
-                                )
-                            }
-                        }
-                }
-
-                if player.isAudioVisualizerEnabled, !player.isLyricsPresented {
-                    floatingAudioVisualizer
+            Group {
+                if selectedDestination == .player {
+                    FullscreenPlayerView()
+                } else {
+                    libraryDetail
                 }
             }
         }
@@ -132,6 +54,66 @@ struct ContentView: View {
         .onPreferenceChange(PlayerBarHeightPreferenceKey.self) { height in
             playerBarHeight = height
         }
+        .onChange(of: selectedDestination) { _, destination in
+            if destination == .player {
+                player.hideLyrics()
+            }
+        }
+    }
+
+    private var libraryDetail: some View {
+        ZStack(alignment: .bottom) {
+            LinearGradient(
+                colors: [Color.ariaPanel.opacity(0.58), Color.ariaBackground],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                ZStack {
+                    VStack(spacing: 0) {
+                        header
+
+                        if let error = player.catalogErrorMessage, !player.catalog.isEmpty {
+                            InlineStatusBanner(
+                                message: error,
+                                systemImage: "wifi.exclamationmark",
+                                actionTitle: "Retry"
+                            ) {
+                                Task { await player.refreshCatalog() }
+                            }
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 12)
+                        }
+
+                        content
+                    }
+
+                    if player.isLyricsPresented, let track = player.currentTrack {
+                        MacKaraokeLyricsView(track: track)
+                            .transition(.opacity.combined(with: .scale(scale: 0.995)))
+                            .zIndex(4)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .animation(.easeInOut(duration: 0.22), value: player.isLyricsPresented)
+
+                PlayerBar()
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: PlayerBarHeightPreferenceKey.self,
+                                value: geometry.size.height
+                            )
+                        }
+                    }
+            }
+
+            if player.isAudioVisualizerEnabled, !player.isLyricsPresented {
+                floatingAudioVisualizer
+            }
+        }
     }
 
     private var floatingAudioVisualizer: some View {
@@ -151,29 +133,19 @@ struct ContentView: View {
 
     private var sidebar: some View {
         List {
-            Section("Library") {
-                ForEach(LibrarySection.allCases) { section in
-                    Button {
-                        selectedSection = section
-                        if section != .albums {
-                            selectedAlbumID = nil
-                        }
-                    } label: {
-                        SidebarNavigationRow(
-                            section: section,
-                            isSelected: activeSection == section
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(activeSection == section ? Color.ariaAccent.opacity(0.18) : Color.clear)
-                            .padding(.vertical, 1)
-                    )
-                }
-            }
+            Section {
+                sidebarNavigationButton(
+                    title: "Player",
+                    systemImage: "play.square.fill",
+                    destination: .player
+                )
 
-            Section("Server") {
+                sidebarNavigationButton(
+                    title: "Albums",
+                    systemImage: "square.stack.fill",
+                    destination: .albums
+                )
+
                 Button {
                     isDownloadSheetPresented = true
                 } label: {
@@ -187,7 +159,7 @@ struct ContentView: View {
 
                         Spacer()
                     }
-                    .foregroundStyle(Color.ariaTextSecondary)
+                    .foregroundStyle(Color.ariaAccent)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
                     .contentShape(Rectangle())
@@ -201,9 +173,40 @@ struct ContentView: View {
                         waitingCount: player.waitingDownloadCount
                     )
                 }
+            }
 
-                Label(serverStatusTitle, systemImage: serverStatusImage)
-                    .foregroundStyle(serverStatusColor)
+            Section("Playlists") {
+                Button {
+                    let playlist = player.createPlaylist()
+                    selectedAlbumID = nil
+                    selectedDestination = .playlist(playlist.id)
+                } label: {
+                    SidebarNavigationRow(
+                        title: "New Playlist",
+                        systemImage: "plus",
+                        isSelected: false,
+                        usesAccent: true
+                    )
+                }
+                .buttonStyle(.plain)
+
+                ForEach(sortedPlaylists) { playlist in
+                    let destination = MacSidebarDestination.playlist(playlist.id)
+
+                    Button {
+                        selectedAlbumID = nil
+                        selectedDestination = destination
+                    } label: {
+                        SidebarPlaylistRow(
+                            playlist: playlist,
+                            isSelected: selectedDestination == destination
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(
+                        sidebarRowBackground(isSelected: selectedDestination == destination)
+                    )
+                }
             }
         }
         .listStyle(.sidebar)
@@ -212,13 +215,21 @@ struct ContentView: View {
                 Divider()
                     .overlay(Color.ariaDivider)
 
-                Text(AriaRelease.displayText)
-                    .font(.caption2.monospacedDigit().weight(.medium))
-                    .foregroundStyle(Color.ariaTextSecondary.opacity(0.72))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .accessibilityLabel("Aria \(AriaRelease.displayText)")
+                HStack(spacing: 10) {
+                    Text(AriaRelease.displayText)
+                        .monospacedDigit()
+
+                    Spacer()
+
+                    Label(serverStatusTitle, systemImage: serverStatusImage)
+                        .foregroundStyle(serverStatusColor)
+                }
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(Color.ariaTextSecondary.opacity(0.78))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Aria \(AriaRelease.displayText), \(serverStatusTitle)")
             }
             .background(.regularMaterial)
         }
@@ -226,10 +237,37 @@ struct ContentView: View {
         .navigationSplitViewColumnWidth(min: 180, ideal: 220)
     }
 
+    private func sidebarNavigationButton(
+        title: String,
+        systemImage: String,
+        destination: MacSidebarDestination
+    ) -> some View {
+        let isSelected = selectedDestination == destination
+
+        return Button {
+            selectedAlbumID = nil
+            selectedDestination = destination
+        } label: {
+            SidebarNavigationRow(
+                title: title,
+                systemImage: systemImage,
+                isSelected: isSelected
+            )
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(sidebarRowBackground(isSelected: isSelected))
+    }
+
+    private func sidebarRowBackground(isSelected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(isSelected ? Color.ariaAccent.opacity(0.18) : Color.clear)
+            .padding(.vertical, 1)
+    }
+
     private var header: some View {
         HStack(alignment: .center, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(activeSection.title)
+                Text(detailTitle)
                     .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(Color.ariaTextPrimary)
                     .lineLimit(1)
@@ -244,46 +282,38 @@ struct ContentView: View {
 
             Spacer()
 
-            if activeSection == .songs, let firstTrack = filteredTracks.first {
-                Button {
-                    player.play(firstTrack, from: filteredTracks)
-                } label: {
-                    Label("Play", systemImage: "play.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.ariaAccent)
-            }
+            if selectedDestination == .albums, selectedAlbumID == nil {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(Color.ariaTextSecondary)
 
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Color.ariaTextSecondary)
+                    TextField("Search albums or artists", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(Color.ariaTextPrimary)
 
-                TextField("Search songs, artists, albums", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .foregroundStyle(Color.ariaTextPrimary)
-
-                if isSearching {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(Color.ariaTextSecondary)
+                    if isSearching {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Color.ariaTextSecondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clear search")
                     }
-                    .buttonStyle(.plain)
-                    .help("Clear search")
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(minWidth: 190, idealWidth: 280, maxWidth: 320)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.ariaSurface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.ariaDivider, lineWidth: 1)
+                        )
+                )
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(minWidth: 190, idealWidth: 280, maxWidth: 320)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.ariaSurface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.ariaDivider, lineWidth: 1)
-                    )
-            )
 
             Button {
                 Task { await player.refreshCatalog() }
@@ -320,9 +350,9 @@ struct ContentView: View {
             ServerErrorState(message: error)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            switch activeSection {
-            case .songs:
-                SongsView(tracks: filteredTracks, isSearching: isSearching)
+            switch selectedDestination {
+            case .player:
+                EmptyView()
             case .albums:
                 if let selectedAlbum {
                     MacAlbumDetailView(album: selectedAlbum) {
@@ -333,21 +363,18 @@ struct ContentView: View {
                         selectedAlbumID = album.id
                     }
                 }
-            case .playlists:
-                PlaylistsView(playlists: player.playlists)
-            case .queue:
-                QueueView()
+            case .playlist:
+                if let selectedPlaylist {
+                    MacPlaylistDetailView(playlist: selectedPlaylist)
+                } else {
+                    EmptyStateView(
+                        title: "Playlist unavailable",
+                        message: "Refresh the library to load this playlist again.",
+                        systemImage: "music.note.list"
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
-        }
-    }
-
-    private var filteredTracks: [Track] {
-        guard isSearching else { return player.catalog }
-
-        let tokens = searchText.casefoldedTokens
-        return player.catalog.filter { track in
-            let text = "\(track.title) \(track.artist) \(track.album)".localizedLowercase
-            return tokens.allSatisfy { text.contains($0) }
         }
     }
 
@@ -366,16 +393,43 @@ struct ContentView: View {
         return player.albums.first { $0.id == selectedAlbumID }
     }
 
-    private var subtitle: String {
-        switch activeSection {
-        case .songs:
-            return "\(filteredTracks.count) songs"
+    private var selectedPlaylist: AriaPlaylist? {
+        guard case .playlist(let playlistID) = selectedDestination else { return nil }
+        return player.playlists.first { $0.id == playlistID }
+    }
+
+    private var sortedPlaylists: [AriaPlaylist] {
+        player.playlists.enumerated().sorted { left, right in
+            let leftRecency = player.playlistRecency(for: left.element.id)
+            let rightRecency = player.playlistRecency(for: right.element.id)
+
+            if leftRecency == rightRecency {
+                return left.offset < right.offset
+            }
+
+            return leftRecency > rightRecency
+        }.map(\.element)
+    }
+
+    private var detailTitle: String {
+        switch selectedDestination {
         case .albums:
-            return "\(filteredAlbums.count) albums"
-        case .playlists:
-            return "\(player.playlists.count) playlists"
-        case .queue:
-            return "\(player.upNext.count) upcoming"
+            return selectedAlbum?.title ?? "Albums"
+        case .playlist:
+            return selectedPlaylist?.title ?? "Playlist"
+        case .player:
+            return "Player"
+        }
+    }
+
+    private var subtitle: String {
+        switch selectedDestination {
+        case .albums:
+            return selectedAlbum?.artist ?? "\(filteredAlbums.count) albums"
+        case .playlist:
+            return selectedPlaylist?.subtitle ?? "Shared playlist"
+        case .player:
+            return "Now playing"
         }
     }
 
@@ -400,7 +454,11 @@ struct ContentView: View {
     }
 
     private var serverStatusColor: Color {
-        player.catalogErrorMessage == nil ? Color.ariaTextSecondary : Color.orange
+        if player.catalogErrorMessage != nil {
+            return .orange
+        }
+
+        return player.catalog.isEmpty ? Color.ariaTextSecondary : Color.ariaAccent
     }
 }
 
@@ -413,24 +471,48 @@ private struct PlayerBarHeightPreferenceKey: PreferenceKey {
 }
 
 struct SidebarNavigationRow: View {
-    let section: LibrarySection
+    let title: String
+    let systemImage: String
     let isSelected: Bool
+    var usesAccent = false
 
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: section.systemImage)
+            Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .semibold))
                 .frame(width: 20)
-                .foregroundStyle(isSelected ? Color.ariaAccent : Color.ariaTextSecondary)
+                .foregroundStyle(isSelected || usesAccent ? Color.ariaAccent : Color.ariaTextSecondary)
 
-            Text(section.title)
+            Text(title)
                 .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(isSelected ? Color.ariaTextPrimary : Color.ariaTextSecondary)
+                .foregroundStyle(isSelected || usesAccent ? Color.ariaTextPrimary : Color.ariaTextSecondary)
 
             Spacer()
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+struct SidebarPlaylistRow: View {
+    let playlist: AriaPlaylist
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            PlaylistArtworkView(playlist: playlist, size: 30, cornerRadius: 5)
+
+            Text(playlist.title)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? Color.ariaTextPrimary : Color.ariaTextSecondary)
+                .lineLimit(1)
+
+            Spacer()
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -657,6 +739,87 @@ struct PlaylistsView: View {
                 }
             }
         }
+    }
+}
+
+struct MacPlaylistDetailView: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+
+    let playlist: AriaPlaylist
+
+    var body: some View {
+        GeometryReader { proxy in
+            let showsAlbum = proxy.size.width >= 760
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    playlistHeader
+
+                    if playlist.tracks.isEmpty {
+                        EmptyStateView(
+                            title: "This playlist is empty",
+                            message: "Use a song's action menu to add music here.",
+                            systemImage: "music.note.list"
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 280)
+                    } else {
+                        VStack(spacing: 0) {
+                            TrackListHeader(showAlbum: showsAlbum)
+
+                            LazyVStack(spacing: 2) {
+                                ForEach(Array(playlist.tracks.enumerated()), id: \.element.id) { index, track in
+                                    TrackRow(
+                                        track: track,
+                                        source: playlist.tracks,
+                                        index: index + 1,
+                                        showAlbum: showsAlbum,
+                                        playlistForPlayback: playlist
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private var playlistHeader: some View {
+        HStack(spacing: 18) {
+            PlaylistArtworkView(playlist: playlist, size: 104, cornerRadius: 10)
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text("Playlist")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.ariaAccent)
+
+                Text(playlist.subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.ariaTextSecondary)
+
+                Button {
+                    player.play(playlist)
+                } label: {
+                    Label("Play Playlist", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.ariaAccent)
+                .disabled(playlist.tracks.isEmpty)
+            }
+
+            Spacer()
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.ariaSurface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.ariaDivider, lineWidth: 1)
+        )
     }
 }
 
@@ -895,6 +1058,7 @@ struct TrackRow: View {
     var index: Int?
     var showAlbum = true
     var canRemoveFromQueue = false
+    var playlistForPlayback: AriaPlaylist?
 
     private var isCurrentTrack: Bool {
         player.currentTrack?.id == track.id
@@ -907,7 +1071,11 @@ struct TrackRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Button {
-                player.play(track, from: playableSource)
+                if let playlistForPlayback {
+                    player.play(track, from: playlistForPlayback)
+                } else {
+                    player.play(track, from: playableSource)
+                }
             } label: {
                 ZStack {
                     if isHovering || isCurrentTrack {
@@ -1140,7 +1308,7 @@ struct PlaylistCard: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            playlistArtwork
+            PlaylistArtworkView(playlist: playlist, size: 64, cornerRadius: 8)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(playlist.title)
@@ -1155,9 +1323,7 @@ struct PlaylistCard: View {
             Spacer()
 
             Button {
-                if let firstTrack = playlist.tracks.first {
-                    player.play(firstTrack, from: playlist.tracks)
-                }
+                player.play(playlist)
             } label: {
                 Label("Play", systemImage: "play.fill")
             }
@@ -1175,27 +1341,40 @@ struct PlaylistCard: View {
         )
     }
 
-    @ViewBuilder
-    private var playlistArtwork: some View {
+}
+
+struct PlaylistArtworkView: View {
+    let playlist: AriaPlaylist
+    let size: CGFloat
+    var cornerRadius: CGFloat = 8
+
+    var body: some View {
+        Group {
         if let coverImageData = playlist.coverImageData,
            let image = NSImage(data: coverImageData) {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .frame(width: size, height: size)
         } else if let firstTrack = playlist.tracks.first {
-            ArtworkView(track: firstTrack, size: 64, cornerRadius: 8)
+                ArtworkView(track: firstTrack, size: size, cornerRadius: cornerRadius)
         } else {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color.ariaPanelRaised)
-                .frame(width: 64, height: 64)
+                    .frame(width: size, height: size)
                 .overlay(
                     Image(systemName: "music.note.list")
-                        .font(.system(size: 22, weight: .semibold))
+                            .font(.system(size: size * 0.34, weight: .semibold))
                         .foregroundStyle(Color.ariaAccent)
                 )
         }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(.white.opacity(0.1), lineWidth: 1)
+        )
     }
 }
 
