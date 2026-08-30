@@ -1,6 +1,17 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.10.0
+Created: 2026-08-30
+
+Added:
+- Added a Refresh Cover from YouTube action to the metadata editor with progress, success, and error states.
+- Added automatic YouTube Music album matching before requesting an album-wide cover replacement from the server.
+
+Changed:
+- Artwork refreshes now reload the catalog with cache-busted image URLs so the new cover appears immediately.
+
+
 Version 1.9.0
 Created: 2026-08-30
 

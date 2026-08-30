@@ -175,6 +175,33 @@ struct AriaServerClient {
         throw AriaServerError.unreachable(failures)
     }
 
+    func refreshTrackArtwork(for track: Track, sourceURL: URL) async throws -> Track {
+        let body = try JSONEncoder().encode(
+            ArtworkRefreshRequest(sourceURL: sourceURL.absoluteString)
+        )
+        var failures: [String] = []
+
+        for baseURL in baseURLs {
+            do {
+                let endpoint = trackEndpoint(for: track, baseURL: baseURL)
+                    .appendingPathComponent("artwork")
+                    .appendingPathComponent("refresh")
+                let (data, _) = try await sendRequest(
+                    to: endpoint,
+                    method: "POST",
+                    body: body,
+                    contentType: "application/json",
+                    timeoutInterval: 60
+                )
+                return try decodeTrack(from: data, fallback: track, baseURL: baseURL)
+            } catch {
+                failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+
+        throw AriaServerError.unreachable(failures)
+    }
+
     func startDownload(_ request: AriaDownloadRequest) async throws -> AriaDownloadJob {
         let body = try JSONEncoder().encode(request)
         var failures: [String] = []
@@ -246,12 +273,13 @@ struct AriaServerClient {
         to url: URL,
         method: String,
         body: Data? = nil,
-        contentType: String? = nil
+        contentType: String? = nil,
+        timeoutInterval: TimeInterval = 12
     ) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.timeoutInterval = 12
+        request.timeoutInterval = timeoutInterval
         request.httpBody = body
 
         if let contentType {
@@ -266,6 +294,10 @@ struct AriaServerClient {
         }
 
         guard 200..<300 ~= httpResponse.statusCode else {
+            if let payload = try? JSONDecoder().decode(ServerErrorPayload.self, from: data),
+               !payload.error.isEmpty {
+                throw AriaServerError.serverMessage(httpResponse.statusCode, payload.error)
+            }
             throw AriaServerError.badStatus(httpResponse.statusCode)
         }
 
@@ -494,6 +526,7 @@ enum AriaServerError: LocalizedError {
     case invalidURL
     case invalidResponse
     case badStatus(Int)
+    case serverMessage(Int, String)
     case emptyCatalog
     case decoding(Error)
     case unreachable([String])
@@ -506,6 +539,8 @@ enum AriaServerError: LocalizedError {
             "The song server returned an invalid response."
         case .badStatus(let statusCode):
             "The song server returned HTTP \(statusCode)."
+        case .serverMessage(_, let message):
+            message
         case .emptyCatalog:
             "The song server did not find any songs."
         case .decoding(let error):
@@ -514,6 +549,14 @@ enum AriaServerError: LocalizedError {
             "Tried \(failures.joined(separator: "\n"))"
         }
     }
+}
+
+private struct ArtworkRefreshRequest: Encodable {
+    let sourceURL: String
+}
+
+private struct ServerErrorPayload: Decodable {
+    let error: String
 }
 
 private struct ServerTrackPayload: Decodable {

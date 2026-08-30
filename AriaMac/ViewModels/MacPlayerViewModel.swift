@@ -9,7 +9,9 @@ final class TrackMetadataEditorSession: ObservableObject, Identifiable {
     @Published var draft: TrackMetadataDraft
     @Published var isLoading = false
     @Published var isSaving = false
+    @Published var isRefreshingArtwork = false
     @Published var errorMessage: String?
+    @Published var artworkStatusMessage: String?
 
     init(track: Track) {
         originalTrack = track
@@ -683,6 +685,79 @@ final class MacPlayerViewModel: ObservableObject {
         }
     }
 
+    func refreshArtwork(for session: TrackMetadataEditorSession) async {
+        let album = session.draft.album.trimmingCharacters(in: .whitespacesAndNewlines)
+        let artist = session.draft.artist.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        session.errorMessage = nil
+        session.artworkStatusMessage = nil
+        session.isRefreshingArtwork = true
+
+        defer {
+            if metadataEditorSession?.id == session.id {
+                session.isRefreshingArtwork = false
+            }
+        }
+
+        do {
+            let query = [artist, album]
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            let results = try await youtubeMusicSearchClient.searchAlbums(
+                query: query,
+                limit: 20
+            )
+            guard let result = bestArtworkResult(
+                in: results,
+                album: album,
+                artist: artist
+            ), let sourceURL = result.artworkURL else {
+                throw MetadataArtworkRefreshError.noYouTubeArtwork
+            }
+
+            let updatedTrack = try await serverClient.refreshTrackArtwork(
+                for: session.originalTrack,
+                sourceURL: sourceURL
+            )
+            applyUpdatedTrack(updatedTrack)
+            await refreshCatalog()
+
+            guard metadataEditorSession?.id == session.id else { return }
+            let refreshedTrack = catalog.first(where: { $0.id == updatedTrack.id }) ?? updatedTrack
+            session.draft = TrackMetadataDraft(track: refreshedTrack)
+            session.artworkStatusMessage = "Cover refreshed from YouTube Music for the whole album."
+        } catch {
+            guard metadataEditorSession?.id == session.id else { return }
+            session.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func bestArtworkResult(
+        in results: [YouTubeMusicAlbumResult],
+        album: String,
+        artist: String
+    ) -> YouTubeMusicAlbumResult? {
+        let wantedAlbum = normalizedArtworkMatchText(album)
+        let wantedArtist = normalizedArtworkMatchText(artist)
+        let withArtwork = results.filter { $0.artworkURL != nil }
+
+        return withArtwork.first {
+            normalizedArtworkMatchText($0.title) == wantedAlbum
+                && normalizedArtworkMatchText($0.artist).contains(wantedArtist)
+        } ?? withArtwork.first {
+            normalizedArtworkMatchText($0.title) == wantedAlbum
+        } ?? withArtwork.first
+    }
+
+    private func normalizedArtworkMatchText(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .unicodeScalars
+            .filter(CharacterSet.alphanumerics.contains)
+            .map(String.init)
+            .joined()
+    }
+
     private var currentDuration: TimeInterval {
         if let duration = currentTrack?.duration, duration > 0 {
             return duration
@@ -1175,6 +1250,14 @@ final class MacPlayerViewModel: ObservableObject {
         return tracks.filter { track in
             seen.insert(track.id).inserted
         }
+    }
+}
+
+private enum MetadataArtworkRefreshError: LocalizedError {
+    case noYouTubeArtwork
+
+    var errorDescription: String? {
+        "Aria could not find a replacement album cover on YouTube Music."
     }
 }
 

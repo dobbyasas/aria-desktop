@@ -1507,6 +1507,26 @@ struct MetadataEditorSheet: View {
                 .padding(.top, 14)
             }
 
+            if let artworkStatusMessage = session.artworkStatusMessage {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.ariaAccent)
+
+                    Text(artworkStatusMessage)
+                        .font(.caption)
+                        .foregroundStyle(Color.ariaTextPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.ariaAccent.opacity(0.12))
+                )
+                .padding(.horizontal, 22)
+                .padding(.top, 14)
+            }
+
             Form {
                 Section("Song") {
                     TextField("Title", text: $session.draft.title)
@@ -1522,9 +1542,31 @@ struct MetadataEditorSheet: View {
                         .help("Use seconds, M:SS, or H:MM:SS")
                 }
 
-                Section("Server URLs") {
-                    TextField("Stream URL", text: $session.draft.streamURL)
+                Section("Artwork") {
                     TextField("Artwork URL", text: $session.draft.artworkURL)
+
+                    Button {
+                        Task {
+                            await player.refreshArtwork(for: session)
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if session.isRefreshingArtwork {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "photo.badge.arrow.down")
+                            }
+
+                            Text(session.isRefreshingArtwork ? "Refreshing Cover…" : "Refresh Cover from YouTube")
+                        }
+                    }
+                    .disabled(session.isLoading || session.isSaving || session.isRefreshingArtwork)
+                    .help("Replace the embedded cover on every song in this album with fresh artwork from YouTube Music")
+                }
+
+                Section("Server URL") {
+                    TextField("Stream URL", text: $session.draft.streamURL)
                 }
             }
             .formStyle(.grouped)
@@ -1551,7 +1593,7 @@ struct MetadataEditorSheet: View {
                 } label: {
                     Label("Reload", systemImage: "arrow.clockwise")
                 }
-                .disabled(session.isLoading || session.isSaving)
+                .disabled(session.isLoading || session.isSaving || session.isRefreshingArtwork)
 
                 Button {
                     Task {
@@ -1569,7 +1611,7 @@ struct MetadataEditorSheet: View {
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .tint(Color.ariaAccent)
-                .disabled(session.isLoading || session.isSaving)
+                .disabled(session.isLoading || session.isSaving || session.isRefreshingArtwork)
             }
             .padding(18)
         }
