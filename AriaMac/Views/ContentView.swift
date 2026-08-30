@@ -662,6 +662,9 @@ struct AlbumsView: View {
 
 struct MacAlbumDetailView: View {
     @EnvironmentObject private var player: MacPlayerViewModel
+    @State private var confirmsAlbumDeletion = false
+    @State private var isDeletingAlbum = false
+    @State private var albumDeletionError: String?
 
     let album: AriaAlbum
     let onBack: () -> Void
@@ -696,6 +699,25 @@ struct MacAlbumDetailView: View {
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
+        }
+        .alert("Delete \(album.title)?", isPresented: $confirmsAlbumDeletion) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete Album", role: .destructive) {
+                deleteAlbum()
+            }
+        } message: {
+            Text("This permanently removes all \(album.tracks.count) song files in this album from the Aria server and removes them from shared playlists.")
+        }
+        .alert(
+            "Couldn’t Delete Album",
+            isPresented: Binding(
+                get: { albumDeletionError != nil },
+                set: { if !$0 { albumDeletionError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(albumDeletionError ?? "Unknown error")
         }
     }
 
@@ -737,6 +759,19 @@ struct MacAlbumDetailView: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(album.tracks.isEmpty)
+
+                    Button(role: .destructive) {
+                        confirmsAlbumDeletion = true
+                    } label: {
+                        if isDeletingAlbum {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Label("Delete Album", systemImage: "trash")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isDeletingAlbum)
                 }
             }
 
@@ -768,6 +803,21 @@ struct MacAlbumDetailView: View {
         let shuffledTracks = album.tracks.shuffled()
         guard let firstTrack = shuffledTracks.first else { return }
         player.play(firstTrack, from: shuffledTracks)
+    }
+
+    private func deleteAlbum() {
+        isDeletingAlbum = true
+        albumDeletionError = nil
+        Task {
+            do {
+                _ = try await player.deleteAlbum(album)
+                isDeletingAlbum = false
+                onBack()
+            } catch {
+                isDeletingAlbum = false
+                albumDeletionError = error.localizedDescription
+            }
+        }
     }
 }
 
@@ -1629,11 +1679,13 @@ struct DownloadMusicSheet: View {
     @State private var year = ""
     @State private var youtubeMusicQuery = ""
     @State private var visibleYouTubeResultCount = 3
+    @State private var searchCategory: YouTubeMusicSearchCategory = .albums
+    @State private var manualCategory: YouTubeMusicSearchCategory = .albums
 
     private var canQueueDownload: Bool {
-        !trimmed(link).isEmpty
-        && !trimmed(album).isEmpty
-        && !trimmed(albumArtist).isEmpty
+        guard !trimmed(link).isEmpty else { return false }
+        return manualCategory != .albums
+            || (!trimmed(album).isEmpty && !trimmed(albumArtist).isEmpty)
     }
 
     private var canSearchYouTubeMusic: Bool {
@@ -1647,7 +1699,7 @@ struct DownloadMusicSheet: View {
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(Color.ariaTextPrimary)
 
-                Text("Find albums on YouTube Music or add a link manually. Aria downloads them one by one on the Fedora server.")
+                Text("Find albums, individual songs, or playlists on YouTube Music. Standalone downloads stay out of the Albums library.")
                     .font(.caption)
                     .foregroundStyle(Color.ariaTextSecondary)
             }
@@ -1661,8 +1713,18 @@ struct DownloadMusicSheet: View {
 
             Form {
                 Section("Search YouTube Music") {
+                    Picker("Type", selection: $searchCategory) {
+                        ForEach(YouTubeMusicSearchCategory.allCases) { category in
+                            Text(category.rawValue).tag(category)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: searchCategory) { _, _ in
+                        visibleYouTubeResultCount = 3
+                    }
+
                     HStack(spacing: 10) {
-                        TextField("Album or artist", text: $youtubeMusicQuery)
+                        TextField(searchPlaceholder, text: $youtubeMusicQuery)
                             .onSubmit {
                                 searchYouTubeMusic()
                             }
@@ -1689,13 +1751,11 @@ struct DownloadMusicSheet: View {
                             .foregroundStyle(Color.orange)
                     }
 
-                    ForEach(Array(player.youtubeMusicResults.prefix(visibleYouTubeResultCount))) { result in
-                        YouTubeMusicAlbumResultRow(result: result)
-                    }
+                    searchResults
 
-                    if visibleYouTubeResultCount < player.youtubeMusicResults.count {
+                    if visibleYouTubeResultCount < resultCount {
                         HStack {
-                            Text("Showing \(visibleYouTubeResultCount) of \(player.youtubeMusicResults.count)")
+                            Text("Showing \(visibleYouTubeResultCount) of \(resultCount)")
                                 .font(.caption)
                                 .foregroundStyle(Color.ariaTextSecondary)
 
@@ -1704,7 +1764,7 @@ struct DownloadMusicSheet: View {
                             Button {
                                 visibleYouTubeResultCount = min(
                                     visibleYouTubeResultCount + 3,
-                                    player.youtubeMusicResults.count
+                                    resultCount
                                 )
                             } label: {
                                 Label("Load More", systemImage: "chevron.down")
@@ -1715,15 +1775,22 @@ struct DownloadMusicSheet: View {
                 }
 
                 Section("Add Link Manually") {
-                    TextField("Playlist / album link", text: $link)
-                    TextField("Album name", text: $album)
-                    TextField("Album artist", text: $albumArtist)
-                    TextField("Year", text: $year)
+                    Picker("Download as", selection: $manualCategory) {
+                        ForEach(YouTubeMusicSearchCategory.allCases) { category in
+                            Text(category.rawValue.dropLast(category == .playlists ? 1 : 0)).tag(category)
+                        }
+                    }
+                    TextField("YouTube Music link", text: $link)
+                    if manualCategory == .albums {
+                        TextField("Album name", text: $album)
+                        TextField("Album artist", text: $albumArtist)
+                        TextField("Year", text: $year)
+                    }
                 }
 
                 Section("Queue") {
                     if player.downloadQueue.isEmpty {
-                        Text("No albums queued yet.")
+                        Text("No downloads queued yet.")
                             .foregroundStyle(Color.ariaTextSecondary)
                     } else {
                         DownloadQueueSummaryView(
@@ -1791,7 +1858,7 @@ struct DownloadMusicSheet: View {
         visibleYouTubeResultCount = 3
 
         Task {
-            await player.searchYouTubeMusicAlbums(query: query)
+            await player.searchYouTubeMusic(query: query, category: searchCategory)
         }
     }
 
@@ -1800,9 +1867,10 @@ struct DownloadMusicSheet: View {
 
         player.enqueueDownload(
             link: link,
-            album: album,
-            albumArtist: albumArtist,
-            year: year
+            album: manualCategory == .albums ? album : manualCategory.rawValue.dropLast().description,
+            albumArtist: manualCategory == .albums ? albumArtist : "YouTube Music",
+            year: year,
+            kind: manualCategory.downloadKind
         )
 
         link = ""
@@ -1813,6 +1881,40 @@ struct DownloadMusicSheet: View {
 
     private func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var resultCount: Int {
+        switch searchCategory {
+        case .albums: player.youtubeMusicResults.count
+        case .songs: player.youtubeMusicSongResults.count
+        case .playlists: player.youtubeMusicPlaylistResults.count
+        }
+    }
+
+    private var searchPlaceholder: String {
+        switch searchCategory {
+        case .albums: "Album or artist"
+        case .songs: "Song or artist"
+        case .playlists: "Playlist name"
+        }
+    }
+
+    @ViewBuilder
+    private var searchResults: some View {
+        switch searchCategory {
+        case .albums:
+            ForEach(Array(player.youtubeMusicResults.prefix(visibleYouTubeResultCount))) { result in
+                YouTubeMusicAlbumResultRow(result: result)
+            }
+        case .songs:
+            ForEach(Array(player.youtubeMusicSongResults.prefix(visibleYouTubeResultCount))) { result in
+                YouTubeMusicSongResultRow(result: result)
+            }
+        case .playlists:
+            ForEach(Array(player.youtubeMusicPlaylistResults.prefix(visibleYouTubeResultCount))) { result in
+                YouTubeMusicPlaylistResultRow(result: result)
+            }
+        }
     }
 }
 
@@ -1896,6 +1998,92 @@ struct YouTubeMusicAlbumResultRow: View {
     }
 }
 
+struct YouTubeMusicSongResultRow: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+    let result: YouTubeMusicSongResult
+
+    var body: some View {
+        YouTubeMusicDownloadResultRow(
+            title: result.title,
+            subtitle: result.artist,
+            artworkURL: result.artworkURL,
+            isDownloaded: player.isSongDownloaded(result),
+            isQueued: player.downloadQueue.contains { $0.request.link == result.downloadLink && !$0.isFinished }
+        ) {
+            player.enqueueDownload(result)
+        }
+    }
+}
+
+struct YouTubeMusicPlaylistResultRow: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+    let result: YouTubeMusicPlaylistResult
+
+    var body: some View {
+        YouTubeMusicDownloadResultRow(
+            title: result.title,
+            subtitle: "Playlist • \(result.curator)",
+            artworkURL: result.artworkURL,
+            isDownloaded: false,
+            isQueued: player.downloadQueue.contains { $0.request.link == result.downloadLink && !$0.isFinished }
+        ) {
+            player.enqueueDownload(result)
+        }
+    }
+}
+
+private struct YouTubeMusicDownloadResultRow: View {
+    let title: String
+    let subtitle: String
+    let artworkURL: URL?
+    let isDownloaded: Bool
+    let isQueued: Bool
+    let onDownload: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AsyncImage(url: artworkURL) { phase in
+                if case .success(let image) = phase {
+                    image.resizable().scaledToFill()
+                } else if case .empty = phase {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "music.note")
+                        .foregroundStyle(Color.ariaTextSecondary)
+                }
+            }
+            .frame(width: 52, height: 52)
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.ariaTextPrimary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(Color.ariaTextSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 12)
+            if isDownloaded {
+                Label("Downloaded", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.ariaAccent)
+            } else {
+                Button(action: onDownload) {
+                    Label(isQueued ? "Queued" : "Download", systemImage: isQueued ? "checkmark" : "arrow.down")
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.ariaAccent)
+                .disabled(isQueued)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+}
+
 struct DownloadQueueSummaryView: View {
     let activeItem: DownloadQueueItem?
     let totalETA: TimeInterval?
@@ -1920,10 +2108,10 @@ struct DownloadQueueSummaryView: View {
         }
 
         if activeItem != nil {
-            return waitingCount == 1 ? "1 album waiting" : "\(waitingCount) albums waiting"
+            return waitingCount == 1 ? "1 download waiting" : "\(waitingCount) downloads waiting"
         }
 
-        return waitingCount == 1 ? "1 album waiting" : "\(waitingCount) albums waiting"
+        return waitingCount == 1 ? "1 download waiting" : "\(waitingCount) downloads waiting"
     }
 
     private var etaTitle: String {

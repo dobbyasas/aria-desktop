@@ -1,6 +1,17 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.11.0
+Created: 2026-08-30
+
+Added:
+- Added YouTube Music search and direct downloads for individual songs and full playlists.
+- Added confirmed album deletion from the album detail screen.
+
+Changed:
+- Standalone songs and playlist downloads remain in the song library without creating partial albums.
+- Download queue labels now cover albums, songs, and playlists.
+
 Version 1.10.0
 Created: 2026-08-30
 
