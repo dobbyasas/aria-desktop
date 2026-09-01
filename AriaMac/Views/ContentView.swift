@@ -11,6 +11,7 @@ private enum MacSidebarDestination: Hashable {
 struct ArtistNameLink: View {
     @EnvironmentObject private var player: MacPlayerViewModel
     @State private var isHovering = false
+    @State private var prefetchTask: Task<Void, Never>?
 
     let name: String
 
@@ -27,7 +28,19 @@ struct ArtistNameLink: View {
             .accessibilityAction {
                 player.presentArtist(named: name)
             }
-            .onHover { isHovering = $0 }
+            .onHover { hovering in
+                isHovering = hovering
+                prefetchTask?.cancel()
+                guard hovering else { return }
+                prefetchTask = Task {
+                    try? await Task.sleep(for: .milliseconds(180))
+                    guard !Task.isCancelled else { return }
+                    await YouTubeMusicSearchClient().prefetchArtistPage(named: name)
+                }
+            }
+            .onDisappear {
+                prefetchTask?.cancel()
+            }
             .animation(.easeOut(duration: 0.16), value: isHovering)
     }
 }
@@ -752,6 +765,8 @@ struct ArtistPageView: View {
     @State private var isLoading = true
     @State private var showsSkeleton = false
     @State private var loadError: String?
+    @State private var artistArtwork: NSImage?
+    @State private var visibleAlbumCount = 18
 
     let artistName: String
     private let searchClient = YouTubeMusicSearchClient()
@@ -795,23 +810,23 @@ struct ArtistPageView: View {
         .task(id: artistName) {
             await loadArtist()
         }
+        .task(id: artistProfile?.artworkURL) {
+            artistArtwork = nil
+            guard let url = artistProfile?.artworkURL else { return }
+            artistArtwork = await AriaArtworkCache.shared.image(for: url)
+        }
     }
 
     private var artistHeader: some View {
         ZStack(alignment: .bottomLeading) {
-            AsyncImage(url: artistProfile?.artworkURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                case .empty:
-                    if showsSkeleton {
-                        Color.white.opacity(0.09)
-                    } else {
-                        artistPlaceholder
-                    }
-                case .failure:
-                    artistPlaceholder
-                @unknown default:
+            Group {
+                if let artistArtwork {
+                    Image(nsImage: artistArtwork)
+                        .resizable()
+                        .scaledToFill()
+                } else if showsSkeleton || artistProfile?.artworkURL != nil {
+                    Color.white.opacity(0.09)
+                } else {
                     artistPlaceholder
                 }
             }
@@ -855,7 +870,7 @@ struct ArtistPageView: View {
     }
 
     private var downloadedAlbumsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        LazyVStack(alignment: .leading, spacing: 12) {
             Text("Downloaded Albums")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(Color.ariaTextPrimary)
@@ -904,20 +919,22 @@ struct ArtistPageView: View {
     }
 
     private var downloadedSongsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let songs = downloadedSongs
+        return LazyVStack(alignment: .leading, spacing: 8) {
             Text("Downloaded Songs")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(Color.ariaTextPrimary)
             TrackListHeader(showAlbum: true)
-            ForEach(Array(downloadedSongs.enumerated()), id: \.element.id) { index, track in
-                TrackRow(track: track, source: downloadedSongs, index: index + 1, showAlbum: true)
+            ForEach(Array(songs.enumerated()), id: \.element.id) { index, track in
+                TrackRow(track: track, source: songs, index: index + 1, showAlbum: true)
             }
         }
     }
 
     @ViewBuilder
     private var availableAlbumsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let albums = downloadableAlbums
+        LazyVStack(alignment: .leading, spacing: 12) {
             Text("More Albums")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(Color.ariaTextPrimary)
@@ -935,12 +952,22 @@ struct ArtistPageView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(Color.ariaAccent)
                 }
-            } else if downloadableAlbums.isEmpty {
+            } else if albums.isEmpty {
                 Text("No additional albums were found.")
                     .foregroundStyle(Color.ariaTextSecondary)
             } else {
-                ForEach(downloadableAlbums) { result in
+                ForEach(albums.prefix(visibleAlbumCount)) { result in
                     YouTubeMusicAlbumResultRow(result: result)
+                }
+
+                if visibleAlbumCount < albums.count {
+                    ProgressView()
+                        .tint(Color.ariaAccent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .onAppear {
+                            visibleAlbumCount = min(visibleAlbumCount + 18, albums.count)
+                        }
                 }
             }
         }
@@ -981,6 +1008,7 @@ struct ArtistPageView: View {
     private func loadArtist() async {
         isLoading = true
         showsSkeleton = false
+        visibleAlbumCount = 18
         loadError = nil
         let skeletonTask = Task {
             try? await Task.sleep(for: .milliseconds(250))

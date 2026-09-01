@@ -168,6 +168,10 @@ final class MacPlayerViewModel: ObservableObject {
         self.serverClient = serverClient
         playlistLastPlayedAt = Self.loadPlaylistHistory()
 
+        Task {
+            await youtubeMusicSearchClient.prepare()
+        }
+
         Task { [weak self] in
             await self?.refreshCatalog()
         }
