@@ -1,6 +1,15 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.14.2
+Created: 2026-09-01
+
+Changed:
+- Artist artwork now fills a wide background hero and loads a high-resolution YouTube Music header image.
+
+Fixed:
+- The artist-page back button now directly restores the originating screen and also supports Escape.
+
 Version 1.14.1
 Created: 2026-09-01
 

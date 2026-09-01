@@ -358,6 +358,20 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 18) {
+            if selectedArtistName != nil {
+                Button(action: closeArtistPage) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.ariaTextPrimary)
+                        .frame(width: 34, height: 34)
+                        .background(Color.white.opacity(0.08), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+                .help("Back")
+                .accessibilityLabel("Back")
+            }
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(detailTitle)
                     .font(.system(size: 30, weight: .semibold))
@@ -442,9 +456,7 @@ struct ContentView: View {
     @ViewBuilder
     private var content: some View {
         if let selectedArtistName {
-            ArtistPageView(artistName: selectedArtistName) {
-                closeArtistPage()
-            }
+            ArtistPageView(artistName: selectedArtistName)
         } else if player.catalog.isEmpty && player.isCatalogLoading {
             EmptyStateView(
                 title: "Loading your library",
@@ -742,7 +754,6 @@ struct ArtistPageView: View {
     @State private var loadError: String?
 
     let artistName: String
-    let onBack: () -> Void
     private let searchClient = YouTubeMusicSearchClient()
 
     private var downloadedSongs: [Track] {
@@ -761,27 +772,24 @@ struct ArtistPageView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 28) {
-                Button(action: onBack) {
-                    Label("Back", systemImage: "chevron.left")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.ariaTextSecondary)
-
+            LazyVStack(alignment: .leading, spacing: 0) {
                 artistHeader
 
-                if !downloadedAlbums.isEmpty {
-                    downloadedAlbumsSection
-                }
+                LazyVStack(alignment: .leading, spacing: 28) {
+                    if !downloadedAlbums.isEmpty {
+                        downloadedAlbumsSection
+                    }
 
-                availableAlbumsSection
+                    availableAlbumsSection
 
-                if !downloadedSongs.isEmpty {
-                    downloadedSongsSection
+                    if !downloadedSongs.isEmpty {
+                        downloadedSongsSection
+                    }
                 }
+                .padding(.horizontal, 24)
+                .padding(.top, 10)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
         }
         .background(Color.ariaBackground)
         .task(id: artistName) {
@@ -790,15 +798,14 @@ struct ArtistPageView: View {
     }
 
     private var artistHeader: some View {
-        HStack(spacing: 24) {
+        ZStack(alignment: .bottomLeading) {
             AsyncImage(url: artistProfile?.artworkURL) { phase in
                 switch phase {
                 case .success(let image):
                     image.resizable().scaledToFill()
                 case .empty:
                     if showsSkeleton {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(0.09))
+                        Color.white.opacity(0.09)
                     } else {
                         artistPlaceholder
                     }
@@ -808,14 +815,20 @@ struct ArtistPageView: View {
                     artistPlaceholder
                 }
             }
-            .frame(width: 310, height: 230)
-            .background(Color.white.opacity(0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            .frame(maxWidth: .infinity)
+            .frame(height: 410)
+            .clipped()
+
+            LinearGradient(
+                stops: [
+                    .init(color: Color.black.opacity(0.03), location: 0),
+                    .init(color: Color.black.opacity(0.13), location: 0.42),
+                    .init(color: Color.ariaBackground.opacity(0.74), location: 0.78),
+                    .init(color: Color.ariaBackground, location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
             )
-            .shadow(color: .black.opacity(0.3), radius: 22, x: 0, y: 12)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("ARTIST")
@@ -832,9 +845,13 @@ struct ArtistPageView: View {
                     .font(.subheadline)
                     .foregroundStyle(Color.ariaTextSecondary)
             }
-
-            Spacer()
+            .padding(.horizontal, 24)
+            .padding(.bottom, 30)
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: 410)
+        .background(Color.ariaPanel)
+        .clipped()
     }
 
     private var downloadedAlbumsSection: some View {
@@ -930,11 +947,12 @@ struct ArtistPageView: View {
     }
 
     private var artistPlaceholder: some View {
-        Image(systemName: "person.fill")
-            .resizable()
-            .scaledToFit()
-            .padding(58)
-            .foregroundStyle(Color.ariaTextSecondary)
+        ZStack {
+            Color.ariaPanel
+            Image(systemName: "person.fill")
+                .font(.system(size: 104, weight: .medium))
+                .foregroundStyle(Color.ariaTextSecondary.opacity(0.7))
+        }
     }
 
     private var albumSkeleton: some View {
