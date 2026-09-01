@@ -8,6 +8,26 @@ private enum MacSidebarDestination: Hashable {
     case playlist(UUID)
 }
 
+struct ArtistNameLink: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+
+    let name: String
+
+    var body: some View {
+        Text(name)
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                TapGesture().onEnded {
+                    player.presentArtist(named: name)
+                }
+            )
+            .accessibilityAddTraits(.isLink)
+            .accessibilityAction {
+                player.presentArtist(named: name)
+            }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject private var player: MacPlayerViewModel
     @State private var selectedDestination: MacSidebarDestination = .player
@@ -69,6 +89,11 @@ struct ContentView: View {
         .sheet(isPresented: $isDownloadSheetPresented) {
             DownloadMusicSheet()
                 .environmentObject(player)
+        }
+        .sheet(item: $player.presentedArtist) { artist in
+            ArtistPageView(artistName: artist.name)
+                .environmentObject(player)
+                .frame(minWidth: 780, minHeight: 700)
         }
         .onPreferenceChange(PlayerBarHeightPreferenceKey.self) { height in
             playerBarHeight = height
@@ -324,10 +349,16 @@ struct ContentView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.ariaTextSecondary)
-                    .lineLimit(1)
+                Group {
+                    if selectedDestination == .albums, let artist = selectedAlbum?.artist {
+                        ArtistNameLink(name: artist)
+                    } else {
+                        Text(subtitle)
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(Color.ariaTextSecondary)
+                .lineLimit(1)
             }
             .layoutPriority(1)
 
@@ -667,6 +698,227 @@ struct SongsView: View {
     }
 }
 
+struct ArtistPageView: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var artistProfile: YouTubeMusicArtistResult?
+    @State private var availableAlbums: [YouTubeMusicAlbumResult] = []
+    @State private var isLoading = true
+    @State private var loadError: String?
+
+    let artistName: String
+    private let searchClient = YouTubeMusicSearchClient()
+
+    private var downloadedSongs: [Track] {
+        player.songs(byArtist: artistName)
+    }
+
+    private var downloadedAlbums: [AriaAlbum] {
+        player.albums(byArtist: artistName)
+    }
+
+    private var downloadableAlbums: [YouTubeMusicAlbumResult] {
+        availableAlbums.filter {
+            player.albumResult($0, belongsToArtist: artistName) && !player.isAlbumDownloaded($0)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Artist")
+                    .font(.headline)
+                    .foregroundStyle(Color.ariaTextSecondary)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+            .background(Color.ariaPanel)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 28) {
+                    artistHeader
+
+                    if !downloadedAlbums.isEmpty {
+                        downloadedAlbumsSection
+                    }
+
+                    if !downloadedSongs.isEmpty {
+                        downloadedSongsSection
+                    }
+
+                    availableAlbumsSection
+                }
+                .padding(24)
+            }
+        }
+        .background(Color.ariaBackground)
+        .task(id: artistName) {
+            await loadArtist()
+        }
+    }
+
+    private var artistHeader: some View {
+        HStack(spacing: 24) {
+            AsyncImage(url: artistProfile?.artworkURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                case .empty:
+                    if artistProfile == nil && isLoading {
+                        ProgressView().controlSize(.large).tint(Color.ariaAccent)
+                    } else {
+                        artistPlaceholder
+                    }
+                case .failure:
+                    artistPlaceholder
+                @unknown default:
+                    artistPlaceholder
+                }
+            }
+            .frame(width: 178, height: 178)
+            .background(Color.white.opacity(0.06))
+            .clipShape(Circle())
+            .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .shadow(color: .black.opacity(0.3), radius: 22, x: 0, y: 12)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("ARTIST")
+                    .font(.caption.weight(.semibold))
+                    .tracking(1.2)
+                    .foregroundStyle(Color.ariaAccent)
+
+                Text(artistProfile?.name ?? artistName)
+                    .font(.system(size: 38, weight: .bold))
+                    .foregroundStyle(Color.ariaTextPrimary)
+                    .lineLimit(2)
+
+                Text("\(downloadedSongs.count) downloaded \(downloadedSongs.count == 1 ? "song" : "songs") • \(downloadedAlbums.count) downloaded \(downloadedAlbums.count == 1 ? "album" : "albums")")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.ariaTextSecondary)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var downloadedAlbumsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Downloaded Albums")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Color.ariaTextPrimary)
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 230, maximum: 300), spacing: 14)],
+                alignment: .leading,
+                spacing: 14
+            ) {
+                ForEach(downloadedAlbums) { album in
+                    Button {
+                        guard let firstTrack = album.tracks.first else { return }
+                        player.play(firstTrack, from: album.tracks)
+                    } label: {
+                        HStack(spacing: 12) {
+                            if let track = album.artworkTrack {
+                                ArtworkView(track: track, size: 70, cornerRadius: 8)
+                            }
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(album.title)
+                                    .font(.headline)
+                                    .foregroundStyle(Color.ariaTextPrimary)
+                                    .lineLimit(2)
+                                Text("\(album.year) • \(album.tracks.count) \(album.tracks.count == 1 ? "song" : "songs")")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.ariaTextSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "play.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(Color.ariaAccent)
+                        }
+                        .padding(12)
+                        .background(Color.ariaSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .stroke(Color.ariaDivider, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Play \(album.title)")
+                }
+            }
+        }
+    }
+
+    private var downloadedSongsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Downloaded Songs")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Color.ariaTextPrimary)
+            TrackListHeader(showAlbum: true)
+            ForEach(Array(downloadedSongs.enumerated()), id: \.element.id) { index, track in
+                TrackRow(track: track, source: downloadedSongs, index: index + 1, showAlbum: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var availableAlbumsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("More Albums")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Color.ariaTextPrimary)
+
+            if isLoading {
+                HStack(spacing: 10) {
+                    ProgressView().tint(Color.ariaAccent)
+                    Text("Finding albums on YouTube Music…")
+                        .foregroundStyle(Color.ariaTextSecondary)
+                }
+            } else if let loadError {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(loadError).foregroundStyle(Color.ariaTextSecondary)
+                    Button("Try Again") { Task { await loadArtist() } }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color.ariaAccent)
+                }
+            } else if downloadableAlbums.isEmpty {
+                Text("No additional albums were found.")
+                    .foregroundStyle(Color.ariaTextSecondary)
+            } else {
+                ForEach(downloadableAlbums) { result in
+                    YouTubeMusicAlbumResultRow(result: result)
+                }
+            }
+        }
+    }
+
+    private var artistPlaceholder: some View {
+        Image(systemName: "person.crop.circle.fill")
+            .resizable()
+            .scaledToFit()
+            .padding(34)
+            .foregroundStyle(Color.ariaTextSecondary)
+    }
+
+    private func loadArtist() async {
+        isLoading = true
+        loadError = nil
+        async let profileRequest = searchClient.searchArtist(named: artistName)
+        async let albumsRequest = searchClient.searchAlbums(query: artistName, limit: 60)
+        artistProfile = try? await profileRequest
+        do {
+            availableAlbums = try await albumsRequest
+        } catch {
+            loadError = error.localizedDescription
+        }
+        isLoading = false
+    }
+}
+
 struct AlbumsView: View {
     let albums: [AriaAlbum]
     let isSearching: Bool
@@ -777,7 +1029,10 @@ struct MacAlbumDetailView: View {
                     .foregroundStyle(Color.ariaTextPrimary)
                     .lineLimit(2)
 
-                Text(albumSubtitle)
+                HStack(spacing: 0) {
+                    ArtistNameLink(name: album.artist)
+                    Text(" - \(albumSubtitle)")
+                }
                     .font(.subheadline)
                     .foregroundStyle(Color.ariaTextSecondary)
 
@@ -829,7 +1084,7 @@ struct MacAlbumDetailView: View {
     private var albumSubtitle: String {
         let yearText = album.year > 0 ? "\(album.year) - " : ""
         let countText = album.tracks.count == 1 ? "1 song" : "\(album.tracks.count) songs"
-        return "\(album.artist) - \(yearText)\(countText) - \(album.duration.ariaDurationText)"
+        return "\(yearText)\(countText) - \(album.duration.ariaDurationText)"
     }
 
     private func playAlbum() {
@@ -1144,7 +1399,10 @@ struct NowPlayingPanel: View {
                     .foregroundStyle(Color.ariaTextPrimary)
                     .lineLimit(2)
 
-                Text("\(track.artist) - \(track.album)")
+                HStack(spacing: 0) {
+                    ArtistNameLink(name: track.artist)
+                    Text(" - \(track.album)")
+                }
                     .font(.subheadline)
                     .foregroundStyle(Color.ariaTextSecondary)
                     .lineLimit(1)
@@ -1278,7 +1536,7 @@ struct TrackRow: View {
                     }
                 }
 
-                Text(track.artist)
+                ArtistNameLink(name: track.artist)
                     .font(.caption)
                     .foregroundStyle(Color.ariaTextSecondary)
                     .lineLimit(1)
@@ -1420,7 +1678,7 @@ struct AlbumCard: View {
                         .foregroundStyle(Color.ariaTextPrimary)
                         .lineLimit(2)
 
-                    Text(album.artist)
+                    ArtistNameLink(name: album.artist)
                         .font(.subheadline)
                         .foregroundStyle(Color.ariaTextSecondary)
                         .lineLimit(1)
@@ -1988,7 +2246,12 @@ struct YouTubeMusicAlbumResultRow: View {
                     .foregroundStyle(Color.ariaTextPrimary)
                     .lineLimit(1)
 
-                Text(resultSubtitle)
+                HStack(spacing: 0) {
+                    ArtistNameLink(name: result.artist)
+                    if !result.year.isEmpty {
+                        Text(" • \(result.year)")
+                    }
+                }
                     .font(.caption)
                     .foregroundStyle(Color.ariaTextSecondary)
                     .lineLimit(1)
@@ -2020,10 +2283,6 @@ struct YouTubeMusicAlbumResultRow: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var resultSubtitle: String {
-        result.year.isEmpty ? result.artist : "\(result.artist) • \(result.year)"
-    }
-
     private var isQueued: Bool {
         player.downloadQueue.contains { item in
             guard item.request.link == result.downloadLink else { return false }
@@ -2044,6 +2303,7 @@ struct YouTubeMusicSongResultRow: View {
         YouTubeMusicDownloadResultRow(
             title: result.title,
             subtitle: result.artist,
+            artistName: result.artist,
             artworkURL: result.artworkURL,
             isDownloaded: player.isSongDownloaded(result),
             isQueued: player.downloadQueue.contains { $0.request.link == result.downloadLink && !$0.isFinished }
@@ -2073,6 +2333,7 @@ struct YouTubeMusicPlaylistResultRow: View {
 private struct YouTubeMusicDownloadResultRow: View {
     let title: String
     let subtitle: String
+    var artistName: String? = nil
     let artworkURL: URL?
     let isDownloaded: Bool
     let isQueued: Bool
@@ -2099,10 +2360,16 @@ private struct YouTubeMusicDownloadResultRow: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.ariaTextPrimary)
                     .lineLimit(1)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(Color.ariaTextSecondary)
-                    .lineLimit(1)
+                Group {
+                    if let artistName {
+                        ArtistNameLink(name: artistName)
+                    } else {
+                        Text(subtitle)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(Color.ariaTextSecondary)
+                .lineLimit(1)
             }
             Spacer(minLength: 12)
             if isDownloaded {
@@ -2179,10 +2446,19 @@ struct DownloadQueueItemRow: View {
                         .foregroundStyle(Color.ariaTextPrimary)
                         .lineLimit(1)
 
-                    Text(albumSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(Color.ariaTextSecondary)
-                        .lineLimit(1)
+                    HStack(spacing: 0) {
+                        if item.request.kind == "playlist" {
+                            Text(item.request.albumArtist)
+                        } else {
+                            ArtistNameLink(name: item.request.albumArtist)
+                        }
+                        if !item.request.year.isEmpty {
+                            Text(" - \(item.request.year)")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Color.ariaTextSecondary)
+                    .lineLimit(1)
                 }
 
                 Spacer()
@@ -2255,11 +2531,6 @@ struct DownloadQueueItemRow: View {
         case .failed:
             Color.orange
         }
-    }
-
-    private var albumSubtitle: String {
-        let yearText = item.request.year.isEmpty ? "" : " - \(item.request.year)"
-        return "\(item.request.albumArtist)\(yearText)"
     }
 
     private var etaText: String? {

@@ -121,7 +121,7 @@ struct FullscreenPlayerView: View {
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
 
-                        Text(track.artist)
+                        ArtistNameLink(name: track.artist)
                             .font(.title3.weight(.medium))
                             .foregroundStyle(Color.ariaTextPrimary.opacity(0.72))
                             .lineLimit(1)
@@ -306,7 +306,7 @@ private struct FullscreenQueueView: View {
                         .foregroundStyle(isCurrent ? Color.ariaTextPrimary : Color.ariaTextPrimary.opacity(0.82))
                         .lineLimit(1)
 
-                    Text(track.artist)
+                    ArtistNameLink(name: track.artist)
                         .font(.caption)
                         .foregroundStyle(Color.ariaTextPrimary.opacity(0.48))
                         .lineLimit(1)
@@ -560,7 +560,10 @@ struct PlayerBar: View {
                         .foregroundStyle(Color.ariaTextPrimary)
                         .lineLimit(1)
 
-                    Text("\(track.artist) - \(track.album)")
+                    HStack(spacing: 0) {
+                        ArtistNameLink(name: track.artist)
+                        Text(" - \(track.album)")
+                    }
                         .font(.caption)
                         .foregroundStyle(Color.ariaTextSecondary)
                         .lineLimit(1)
@@ -769,7 +772,7 @@ struct MacKaraokeLyricsView: View {
                     .font(.title2.weight(.bold))
                     .foregroundStyle(Color.ariaTextPrimary)
                     .lineLimit(1)
-                Text(track.artist)
+                ArtistNameLink(name: track.artist)
                     .font(.subheadline)
                     .foregroundStyle(Color.ariaTextSecondary)
                     .lineLimit(1)
