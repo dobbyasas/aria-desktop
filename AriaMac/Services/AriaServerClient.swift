@@ -238,12 +238,20 @@ struct AriaServerClient {
         throw AriaServerError.unreachable(failures)
     }
 
-    func deleteAlbum(containing track: Track) async throws -> AlbumDeletionResult {
+    func deleteAlbum(id albumID: String?, containing track: Track) async throws -> AlbumDeletionResult {
         var failures: [String] = []
         for baseURL in baseURLs {
             do {
-                let endpoint = trackEndpoint(for: track, baseURL: baseURL)
-                    .appendingPathComponent("album")
+                let endpoint: URL
+                if let albumID, !albumID.isEmpty {
+                    endpoint = baseURL
+                        .appendingPathComponent("api")
+                        .appendingPathComponent("albums")
+                        .appendingPathComponent(albumID)
+                } else {
+                    endpoint = trackEndpoint(for: track, baseURL: baseURL)
+                        .appendingPathComponent("album")
+                }
                 let (data, _) = try await sendRequest(
                     to: endpoint,
                     method: "DELETE",
@@ -591,6 +599,7 @@ private struct ServerErrorPayload: Decodable {
 
 private struct ServerTrackPayload: Decodable {
     var idSeed: String?
+    var albumID: String?
     var title: String?
     var artist: String?
     var album: String?
@@ -611,6 +620,7 @@ private struct ServerTrackPayload: Decodable {
         let container = try decoder.container(keyedBy: FlexibleCodingKey.self)
 
         idSeed = container.decodeLossyString(forKeyNames: ["id", "uuid", "trackId", "track_id"])
+        albumID = container.decodeLossyString(forKeyNames: ["albumID", "albumId", "album_id"])
         title = container.decodeLossyString(forKeyNames: ["title", "name", "trackTitle", "track_title"])
         artist = container.decodeLossyString(forKeyNames: ["artist", "artistName", "artist_name", "albumArtist", "album_artist"])
         album = container.decodeLossyString(forKeyNames: ["album", "albumName", "album_name", "collection"])
@@ -652,6 +662,7 @@ private struct ServerTrackPayload: Decodable {
         return Track(
             id: UUID(uuidString: seed) ?? fallbackID ?? StableID.uuid(from: seed),
             serverID: cleaned(idSeed),
+            serverAlbumID: cleaned(albumID),
             title: cleanTitle,
             artist: cleanArtist,
             album: cleanAlbum,

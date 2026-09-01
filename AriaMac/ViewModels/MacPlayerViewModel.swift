@@ -634,7 +634,7 @@ final class MacPlayerViewModel: ObservableObject {
         guard let track = album.tracks.first else {
             throw AriaServerError.invalidResponse
         }
-        let result = try await serverClient.deleteAlbum(containing: track)
+        let result = try await serverClient.deleteAlbum(id: album.serverID, containing: track)
         await refreshCatalog()
         return result
     }

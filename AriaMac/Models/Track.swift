@@ -3,6 +3,7 @@ import Foundation
 struct Track: Identifiable, Hashable, Codable {
     let id: UUID
     var serverID: String?
+    var serverAlbumID: String?
     var title: String
     var artist: String
     var album: String
@@ -18,6 +19,7 @@ struct Track: Identifiable, Hashable, Codable {
     init(
         id: UUID = UUID(),
         serverID: String? = nil,
+        serverAlbumID: String? = nil,
         title: String,
         artist: String = "Unknown Artist",
         album: String = "Unknown Album",
@@ -32,6 +34,7 @@ struct Track: Identifiable, Hashable, Codable {
     ) {
         self.id = id
         self.serverID = serverID
+        self.serverAlbumID = serverAlbumID
         self.title = title
         self.artist = artist
         self.album = album
