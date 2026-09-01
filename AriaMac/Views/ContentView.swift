@@ -3,6 +3,7 @@ import AppKit
 
 private enum MacSidebarDestination: Hashable {
     case player
+    case songs
     case albums
     case playlist(UUID)
 }
@@ -179,6 +180,12 @@ struct ContentView: View {
                         )
 
                         sidebarNavigationButton(
+                            title: "Songs",
+                            systemImage: "music.note.list",
+                            destination: .songs
+                        )
+
+                        sidebarNavigationButton(
                             title: "Albums",
                             systemImage: "square.stack.fill",
                             destination: .albums
@@ -326,12 +333,15 @@ struct ContentView: View {
 
             Spacer()
 
-            if selectedDestination == .albums, selectedAlbumID == nil {
+            if selectedDestination == .songs || (selectedDestination == .albums && selectedAlbumID == nil) {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(Color.ariaTextSecondary)
 
-                    TextField("Search albums or artists", text: $searchText)
+                    TextField(
+                        selectedDestination == .songs ? "Search songs or artists" : "Search albums or artists",
+                        text: $searchText
+                    )
                         .textFieldStyle(.plain)
                         .foregroundStyle(Color.ariaTextPrimary)
 
@@ -397,6 +407,11 @@ struct ContentView: View {
             switch selectedDestination {
             case .player:
                 EmptyView()
+            case .songs:
+                SongsView(
+                    tracks: filteredSongs,
+                    isSearching: isSearching
+                )
             case .albums:
                 if let selectedAlbum {
                     MacAlbumDetailView(album: selectedAlbum) {
@@ -405,7 +420,6 @@ struct ContentView: View {
                 } else {
                     AlbumsView(
                         albums: filteredAlbums,
-                        standaloneTracks: filteredStandaloneTracks,
                         isSearching: isSearching
                     ) { album in
                         selectedAlbumID = album.id
@@ -436,8 +450,14 @@ struct ContentView: View {
         }
     }
 
-    private var filteredStandaloneTracks: [Track] {
-        let tracks = player.catalog.filter { $0.isStandalone == true }
+    private var filteredSongs: [Track] {
+        let tracks = player.catalog.sorted {
+            let titleOrder = $0.title.localizedCaseInsensitiveCompare($1.title)
+            if titleOrder == .orderedSame {
+                return $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending
+            }
+            return titleOrder == .orderedAscending
+        }
         guard isSearching else { return tracks }
         let tokens = searchText.casefoldedTokens
         return tracks.filter { track in
@@ -471,6 +491,8 @@ struct ContentView: View {
 
     private var detailTitle: String {
         switch selectedDestination {
+        case .songs:
+            return "Songs"
         case .albums:
             return selectedAlbum?.title ?? "Albums"
         case .playlist:
@@ -482,6 +504,8 @@ struct ContentView: View {
 
     private var subtitle: String {
         switch selectedDestination {
+        case .songs:
+            return "\(filteredSongs.count) songs"
         case .albums:
             return selectedAlbum?.artist ?? "\(filteredAlbums.count) albums"
         case .playlist:
@@ -645,7 +669,6 @@ struct SongsView: View {
 
 struct AlbumsView: View {
     let albums: [AriaAlbum]
-    let standaloneTracks: [Track]
     let isSearching: Bool
     let onOpenAlbum: (AriaAlbum) -> Void
 
@@ -654,7 +677,7 @@ struct AlbumsView: View {
     ]
 
     var body: some View {
-        if albums.isEmpty && standaloneTracks.isEmpty {
+        if albums.isEmpty {
             EmptyStateView(
                 title: isSearching ? "No albums found" : "No albums yet",
                 message: isSearching ? "Try a different search." : "Albums appear after Aria loads songs with album metadata.",
@@ -663,37 +686,9 @@ struct AlbumsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    if !albums.isEmpty {
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                            ForEach(albums) { album in
-                                AlbumCard(album: album, onOpen: onOpenAlbum)
-                            }
-                        }
-                    }
-
-                    if !standaloneTracks.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Standalone Songs")
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(Color.ariaTextPrimary)
-
-                            Text("Individual songs and playlist downloads stay here instead of creating incomplete albums.")
-                                .font(.caption)
-                                .foregroundStyle(Color.ariaTextSecondary)
-
-                            TrackListHeader(showAlbum: false)
-                            LazyVStack(spacing: 2) {
-                                ForEach(Array(standaloneTracks.enumerated()), id: \.element.id) { index, track in
-                                    TrackRow(
-                                        track: track,
-                                        source: standaloneTracks,
-                                        index: index + 1,
-                                        showAlbum: false
-                                    )
-                                }
-                            }
-                        }
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
+                    ForEach(albums) { album in
+                        AlbumCard(album: album, onOpen: onOpenAlbum)
                     }
                 }
                 .padding(.horizontal, 24)

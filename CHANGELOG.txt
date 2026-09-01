@@ -1,6 +1,16 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.13.0
+Created: 2026-09-01
+
+Added:
+- Added a Songs destination above Albums in the sidebar with every track in the Aria library.
+
+Changed:
+- Standalone song and playlist downloads now appear only in Songs and no longer appear between album cards.
+- Playlist downloads preserve and repair each song's individual metadata and artwork through the server.
+
 Version 1.12.1
 Created: 2026-08-30
 
