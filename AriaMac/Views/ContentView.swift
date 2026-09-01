@@ -10,11 +10,13 @@ private enum MacSidebarDestination: Hashable {
 
 struct ArtistNameLink: View {
     @EnvironmentObject private var player: MacPlayerViewModel
+    @State private var isHovering = false
 
     let name: String
 
     var body: some View {
         Text(name)
+            .foregroundStyle(isHovering ? Color.ariaAccent : Color.ariaTextSecondary)
             .contentShape(Rectangle())
             .highPriorityGesture(
                 TapGesture().onEnded {
@@ -25,6 +27,8 @@ struct ArtistNameLink: View {
             .accessibilityAction {
                 player.presentArtist(named: name)
             }
+            .onHover { isHovering = $0 }
+            .animation(.easeOut(duration: 0.16), value: isHovering)
     }
 }
 
@@ -32,6 +36,9 @@ struct ContentView: View {
     @EnvironmentObject private var player: MacPlayerViewModel
     @State private var selectedDestination: MacSidebarDestination = .player
     @State private var selectedAlbumID: String?
+    @State private var selectedArtistName: String?
+    @State private var artistReturnDestination: MacSidebarDestination?
+    @State private var artistReturnAlbumID: String?
     @State private var searchText = ""
     @State private var isDownloadSheetPresented = false
     @State private var isSidebarVisible = true
@@ -51,7 +58,7 @@ struct ContentView: View {
                 }
 
                 Group {
-                    if selectedDestination == .player {
+                    if selectedDestination == .player && selectedArtistName == nil {
                         FullscreenPlayerView()
                     } else {
                         libraryDetail
@@ -90,11 +97,6 @@ struct ContentView: View {
             DownloadMusicSheet()
                 .environmentObject(player)
         }
-        .sheet(item: $player.presentedArtist) { artist in
-            ArtistPageView(artistName: artist.name)
-                .environmentObject(player)
-                .frame(minWidth: 780, minHeight: 700)
-        }
         .onPreferenceChange(PlayerBarHeightPreferenceKey.self) { height in
             playerBarHeight = height
         }
@@ -102,6 +104,17 @@ struct ContentView: View {
             if destination == .player {
                 player.hideLyrics()
             }
+        }
+        .onChange(of: player.presentedArtist) { _, artist in
+            guard let artist else { return }
+            if selectedArtistName == nil {
+                artistReturnDestination = selectedDestination
+                artistReturnAlbumID = selectedAlbumID
+            }
+            selectedDestination = .albums
+            selectedAlbumID = nil
+            selectedArtistName = artist.name
+            player.dismissArtist()
         }
     }
 
@@ -248,6 +261,7 @@ struct ContentView: View {
                         Button {
                             let playlist = player.createPlaylist()
                             selectedAlbumID = nil
+                            selectedArtistName = nil
                             selectedDestination = .playlist(playlist.id)
                         } label: {
                             SidebarNavigationRow(
@@ -264,6 +278,7 @@ struct ContentView: View {
 
                             Button {
                                 selectedAlbumID = nil
+                                selectedArtistName = nil
                                 selectedDestination = destination
                             } label: {
                                 SidebarPlaylistRow(
@@ -329,6 +344,7 @@ struct ContentView: View {
 
         return Button {
             selectedAlbumID = nil
+            selectedArtistName = nil
             selectedDestination = destination
         } label: {
             SidebarNavigationRow(
@@ -364,7 +380,8 @@ struct ContentView: View {
 
             Spacer()
 
-            if selectedDestination == .songs || (selectedDestination == .albums && selectedAlbumID == nil) {
+            if selectedArtistName == nil
+                && (selectedDestination == .songs || (selectedDestination == .albums && selectedAlbumID == nil)) {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(Color.ariaTextSecondary)
@@ -424,7 +441,11 @@ struct ContentView: View {
 
     @ViewBuilder
     private var content: some View {
-        if player.catalog.isEmpty && player.isCatalogLoading {
+        if let selectedArtistName {
+            ArtistPageView(artistName: selectedArtistName) {
+                closeArtistPage()
+            }
+        } else if player.catalog.isEmpty && player.isCatalogLoading {
             EmptyStateView(
                 title: "Loading your library",
                 message: "Pulling songs from the Aria server.",
@@ -507,6 +528,14 @@ struct ContentView: View {
         return player.playlists.first { $0.id == playlistID }
     }
 
+    private func closeArtistPage() {
+        selectedArtistName = nil
+        selectedDestination = artistReturnDestination ?? .albums
+        selectedAlbumID = artistReturnAlbumID
+        artistReturnDestination = nil
+        artistReturnAlbumID = nil
+    }
+
     private var sortedPlaylists: [AriaPlaylist] {
         player.playlists.enumerated().sorted { left, right in
             let leftRecency = player.playlistRecency(for: left.element.id)
@@ -521,6 +550,9 @@ struct ContentView: View {
     }
 
     private var detailTitle: String {
+        if let selectedArtistName {
+            return selectedArtistName
+        }
         switch selectedDestination {
         case .songs:
             return "Songs"
@@ -534,6 +566,9 @@ struct ContentView: View {
     }
 
     private var subtitle: String {
+        if selectedArtistName != nil {
+            return "Artist"
+        }
         switch selectedDestination {
         case .songs:
             return "\(filteredSongs.count) songs"
@@ -700,13 +735,14 @@ struct SongsView: View {
 
 struct ArtistPageView: View {
     @EnvironmentObject private var player: MacPlayerViewModel
-    @Environment(\.dismiss) private var dismiss
     @State private var artistProfile: YouTubeMusicArtistResult?
     @State private var availableAlbums: [YouTubeMusicAlbumResult] = []
     @State private var isLoading = true
+    @State private var showsSkeleton = false
     @State private var loadError: String?
 
     let artistName: String
+    let onBack: () -> Void
     private let searchClient = YouTubeMusicSearchClient()
 
     private var downloadedSongs: [Track] {
@@ -724,35 +760,28 @@ struct ArtistPageView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Artist")
-                    .font(.headline)
-                    .foregroundStyle(Color.ariaTextSecondary)
-                Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 28) {
+                Button(action: onBack) {
+                    Label("Back", systemImage: "chevron.left")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.ariaTextSecondary)
+
+                artistHeader
+
+                if !downloadedAlbums.isEmpty {
+                    downloadedAlbumsSection
+                }
+
+                availableAlbumsSection
+
+                if !downloadedSongs.isEmpty {
+                    downloadedSongsSection
+                }
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 16)
-            .background(Color.ariaPanel)
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 28) {
-                    artistHeader
-
-                    if !downloadedAlbums.isEmpty {
-                        downloadedAlbumsSection
-                    }
-
-                    if !downloadedSongs.isEmpty {
-                        downloadedSongsSection
-                    }
-
-                    availableAlbumsSection
-                }
-                .padding(24)
-            }
+            .padding(.bottom, 24)
         }
         .background(Color.ariaBackground)
         .task(id: artistName) {
@@ -767,8 +796,9 @@ struct ArtistPageView: View {
                 case .success(let image):
                     image.resizable().scaledToFill()
                 case .empty:
-                    if artistProfile == nil && isLoading {
-                        ProgressView().controlSize(.large).tint(Color.ariaAccent)
+                    if showsSkeleton {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.white.opacity(0.09))
                     } else {
                         artistPlaceholder
                     }
@@ -778,10 +808,13 @@ struct ArtistPageView: View {
                     artistPlaceholder
                 }
             }
-            .frame(width: 178, height: 178)
+            .frame(width: 310, height: 230)
             .background(Color.white.opacity(0.06))
-            .clipShape(Circle())
-            .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            )
             .shadow(color: .black.opacity(0.3), radius: 22, x: 0, y: 12)
 
             VStack(alignment: .leading, spacing: 10) {
@@ -873,10 +906,10 @@ struct ArtistPageView: View {
                 .foregroundStyle(Color.ariaTextPrimary)
 
             if isLoading {
-                HStack(spacing: 10) {
+                if showsSkeleton {
+                    albumSkeleton
+                } else {
                     ProgressView().tint(Color.ariaAccent)
-                    Text("Finding albums on YouTube Music…")
-                        .foregroundStyle(Color.ariaTextSecondary)
                 }
             } else if let loadError {
                 VStack(alignment: .leading, spacing: 8) {
@@ -897,24 +930,54 @@ struct ArtistPageView: View {
     }
 
     private var artistPlaceholder: some View {
-        Image(systemName: "person.crop.circle.fill")
+        Image(systemName: "person.fill")
             .resizable()
             .scaledToFit()
-            .padding(34)
+            .padding(58)
             .foregroundStyle(Color.ariaTextSecondary)
+    }
+
+    private var albumSkeleton: some View {
+        VStack(spacing: 10) {
+            ForEach(0..<3, id: \.self) { _ in
+                HStack(spacing: 12) {
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(Color.white.opacity(0.09))
+                        .frame(width: 52, height: 52)
+                    VStack(alignment: .leading, spacing: 8) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.white.opacity(0.1))
+                            .frame(width: 220, height: 13)
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.white.opacity(0.07))
+                            .frame(width: 145, height: 10)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 3)
+            }
+        }
+        .accessibilityLabel("Loading albums")
     }
 
     private func loadArtist() async {
         isLoading = true
+        showsSkeleton = false
         loadError = nil
-        async let profileRequest = searchClient.searchArtist(named: artistName)
-        async let albumsRequest = searchClient.searchAlbums(query: artistName, limit: 60)
-        artistProfile = try? await profileRequest
+        let skeletonTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            showsSkeleton = true
+        }
         do {
-            availableAlbums = try await albumsRequest
+            let result = try await searchClient.artistPage(named: artistName, albumLimit: 60)
+            artistProfile = result.artist
+            availableAlbums = result.albums
         } catch {
             loadError = error.localizedDescription
         }
+        skeletonTask.cancel()
+        showsSkeleton = false
         isLoading = false
     }
 }
