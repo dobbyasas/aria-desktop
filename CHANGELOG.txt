@@ -1,6 +1,12 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.14.4
+Created: 2026-09-01
+
+Changed:
+- Removed the artist-page header and placed a shadowed back control directly over the hero artwork.
+
 Version 1.14.3
 Created: 2026-09-01
 

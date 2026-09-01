@@ -143,7 +143,9 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 ZStack {
                     VStack(spacing: 0) {
-                        header
+                        if selectedArtistName == nil {
+                            header
+                        }
 
                         if let error = player.catalogErrorMessage, !player.catalog.isEmpty {
                             InlineStatusBanner(
@@ -168,6 +170,12 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .animation(.easeInOut(duration: 0.22), value: player.isLyricsPresented)
+                .overlay(alignment: .topLeading) {
+                    if selectedArtistName != nil {
+                        artistBackButton
+                            .padding(24)
+                    }
+                }
 
                 PlayerBar()
                     .background {
@@ -371,20 +379,6 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 18) {
-            if selectedArtistName != nil {
-                Button(action: closeArtistPage) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color.ariaTextPrimary)
-                        .frame(width: 34, height: 34)
-                        .background(Color.white.opacity(0.08), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-                .help("Back")
-                .accessibilityLabel("Back")
-            }
-
             VStack(alignment: .leading, spacing: 4) {
                 Text(detailTitle)
                     .font(.system(size: 30, weight: .semibold))
@@ -464,6 +458,21 @@ struct ContentView: View {
         .padding(.horizontal, 24)
         .padding(.top, 24)
         .padding(.bottom, 18)
+    }
+
+    private var artistBackButton: some View {
+        Button(action: closeArtistPage) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .frame(width: 38, height: 38)
+                .background(Color.black.opacity(0.38), in: Circle())
+                .shadow(color: Color.black.opacity(0.32), radius: 10, y: 4)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.cancelAction)
+        .help("Back")
+        .accessibilityLabel("Back")
     }
 
     @ViewBuilder
@@ -836,7 +845,8 @@ struct ArtistPageView: View {
 
             LinearGradient(
                 stops: [
-                    .init(color: Color.black.opacity(0.03), location: 0),
+                    .init(color: Color.black.opacity(0.36), location: 0),
+                    .init(color: Color.black.opacity(0.06), location: 0.24),
                     .init(color: Color.black.opacity(0.13), location: 0.42),
                     .init(color: Color.ariaBackground.opacity(0.74), location: 0.78),
                     .init(color: Color.ariaBackground, location: 1)
