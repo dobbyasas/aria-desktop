@@ -1,6 +1,13 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.16.0
+Created: 2026-09-03
+
+Changed:
+- Rebuilt the Mac library with a new collection-focused layout while preserving the blue sidebar treatment.
+- Replaced the player with a software-first, classic desktop media workstation featuring document panes, compact controls, live spectrum feedback, and dedicated player, lyrics, and queue modes.
+
 Version 1.15.0
 Created: 2026-09-01
 

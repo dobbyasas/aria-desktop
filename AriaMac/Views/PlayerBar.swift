@@ -3,201 +3,396 @@ import SwiftUI
 struct FullscreenPlayerView: View {
     @EnvironmentObject private var player: MacPlayerViewModel
     @State private var artworkPalette: ArtworkPalette?
-    @State private var showsLyrics = true
+    @State private var showsLyrics = false
     @State private var showsQueue = false
 
+    private let chrome = Color(hex: "#C8CAC6")
+    private let chromeDark = Color(hex: "#8D918E")
+    private let cobalt = Color(hex: "#16458A")
+    private let ink = Color(hex: "#111820")
+    private let paper = Color(hex: "#E7E5DD")
+    private let signal = Color(hex: "#F04B35")
+
     var body: some View {
-        ZStack(alignment: .bottom) {
-            playerBackground
+        ZStack {
+            Color(hex: "#747B80").ignoresSafeArea()
 
             VStack(spacing: 0) {
-                if let playbackError = player.playbackErrorMessage {
-                    InlinePlaybackError(message: playbackError)
-                }
-
                 if let track = player.currentTrack {
-                    playerStage(for: track)
+                    applicationTitleBar(track.title)
+                    modeStrip
+
+                    GeometryReader { proxy in
+                        Group {
+                            if showsLyrics || showsQueue {
+                                alternateWorkspace(for: track, in: proxy.size)
+                            } else {
+                                playerWorkspace(for: track, in: proxy.size)
+                            }
+                        }
+                    }
+
+                    controlShelf(track: track)
                 } else {
-                    emptyPlayerStage
+                    applicationTitleBar("No File Open")
+                    modeStrip
+                    emptyWorkspace
                 }
-
-                FullscreenPlayerControls(
-                    showsLyrics: $showsLyrics,
-                    showsQueue: $showsQueue
-                )
             }
+            .background(chrome)
+            .overlay {
+                Rectangle().stroke(Color.black.opacity(0.76), lineWidth: 2)
+            }
+            .shadow(color: .black.opacity(0.42), radius: 18, y: 12)
+            .padding(24)
 
-            if player.isAudioVisualizerEnabled {
-                AudioVisualizer(
-                    levels: player.spectrumLevels,
-                    hasTrack: player.currentTrack != nil
-                )
-                .frame(height: 76)
-                .padding(.horizontal, 18)
-                .padding(.bottom, 128)
-                .allowsHitTesting(false)
-                .transition(.opacity)
-                .accessibilityHidden(true)
+            if let playbackError = player.playbackErrorMessage {
+                InlinePlaybackError(message: playbackError)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(32)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.ariaBackground)
         .task(id: player.currentTrack?.artworkURL) {
             await loadArtworkPalette()
         }
-        .animation(.easeOut(duration: 0.22), value: player.isAudioVisualizerEnabled)
-        .animation(.easeInOut(duration: 0.24), value: showsLyrics)
-        .animation(.easeInOut(duration: 0.24), value: showsQueue)
+        .animation(.easeInOut(duration: 0.16), value: showsLyrics)
+        .animation(.easeInOut(duration: 0.16), value: showsQueue)
     }
 
-    @ViewBuilder
-    private var playerBackground: some View {
-        if let track = player.currentTrack {
-            let palette = artworkPalette ?? track.artwork
-
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(hex: palette.topHex).opacity(0.78),
-                        Color(hex: palette.bottomHex).opacity(0.58),
-                        Color.ariaBackground
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                RadialGradient(
-                    colors: [
-                        Color(hex: palette.topHex).opacity(0.28),
-                        .clear
-                    ],
-                    center: .topLeading,
-                    startRadius: 20,
-                    endRadius: 680
-                )
-
-                Color.black.opacity(0.28)
+    private func applicationTitleBar(_ title: String) -> some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 4) {
+                Rectangle().fill(Color.white.opacity(0.86)).frame(width: 3, height: 13)
+                Rectangle().fill(Color.white.opacity(0.86)).frame(width: 3, height: 13)
+                Rectangle().fill(Color.white.opacity(0.86)).frame(width: 3, height: 13)
             }
-            .ignoresSafeArea()
-        } else {
-            LinearGradient(
-                colors: [Color.ariaPanelRaised, Color.ariaBackground],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+
+            Text("ARIA PLAYER")
+                .font(.system(size: 12, weight: .black, design: .monospaced))
+                .tracking(1.2)
+
+            Text("— " + title)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+                .opacity(0.84)
+
+            Spacer()
+
+            Text(player.isPlaying ? "PLAYING" : "READY")
+                .font(.system(size: 9, weight: .black, design: .monospaced))
+                .padding(.horizontal, 8)
+                .frame(height: 18)
+                .background(Color.white.opacity(0.16))
+
+            Rectangle()
+                .fill(player.isPlaying ? Color(hex: "#5CFF88") : Color.white.opacity(0.28))
+                .frame(width: 7, height: 7)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(cobalt)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.black.opacity(0.42)).frame(height: 1)
         }
     }
 
-    private func playerStage(for track: Track) -> some View {
-        GeometryReader { proxy in
-            let visibleColumnCount = 1 + (showsLyrics ? 1 : 0) + (showsQueue ? 1 : 0)
-            let separatorCost = CGFloat(visibleColumnCount - 1) * 41
-            let columnWidth = max(
-                (proxy.size.width - 56 - separatorCost) / CGFloat(visibleColumnCount),
-                170
-            )
-            let maximumArtworkSize: CGFloat = visibleColumnCount == 3 ? 320 : 440
-            let artworkSize = max(
-                140,
-                min(min(columnWidth - 28, proxy.size.height * 0.64), maximumArtworkSize)
-            )
+    private var modeStrip: some View {
+        HStack(spacing: 0) {
+            Text("FILE")
+            Text("VIEW")
+            Text("PLAYBACK")
+            Text("WINDOW")
 
-            HStack(spacing: 20) {
-                VStack(spacing: 16) {
-                    Spacer(minLength: 8)
+            Spacer()
 
-                    ArtworkView(
-                        track: track,
-                        size: artworkSize,
-                        cornerRadius: 14
-                    )
-                    .shadow(color: .black.opacity(0.32), radius: 28, x: 0, y: 18)
+            modeButton("PLAYER", selected: !showsLyrics && !showsQueue) {
+                showsLyrics = false
+                showsQueue = false
+            }
+            modeButton("LYRICS", selected: showsLyrics) {
+                showsLyrics = true
+                showsQueue = false
+            }
+            modeButton("QUEUE", selected: showsQueue) {
+                showsQueue = true
+                showsLyrics = false
+            }
+        }
+        .font(.system(size: 9, weight: .bold, design: .monospaced))
+        .foregroundStyle(ink.opacity(0.78))
+        .padding(.leading, 13)
+        .frame(height: 32)
+        .background(chrome)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.black.opacity(0.38)).frame(height: 1)
+        }
+    }
 
-                    VStack(spacing: 6) {
-                        Text(track.title)
-                            .font(.system(size: visibleColumnCount == 3 ? 22 : 28, weight: .semibold))
-                            .foregroundStyle(Color.ariaTextPrimary)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
+    private func modeButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .foregroundStyle(selected ? .white : ink.opacity(0.72))
+                .padding(.horizontal, 13)
+                .frame(height: 31)
+                .background(selected ? cobalt : Color.clear)
+                .overlay {
+                    Rectangle().stroke(Color.black.opacity(selected ? 0.28 : 0.16), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+    }
 
-                        ArtistNameLink(name: track.artist)
-                            .font(.title3.weight(.medium))
-                            .foregroundStyle(Color.ariaTextPrimary.opacity(0.72))
-                            .lineLimit(1)
+    private func playerWorkspace(for track: Track, in size: CGSize) -> some View {
+        let artworkSize = min(size.height * 0.58, size.width * 0.40, 430)
 
-                        Text(track.album)
-                            .font(.subheadline)
-                            .foregroundStyle(Color.ariaTextPrimary.opacity(0.48))
-                            .lineLimit(1)
+        return HStack(spacing: 0) {
+            artworkDocument(track, size: artworkSize)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            trackInspector(track)
+                .frame(width: max(330, size.width * 0.39))
+        }
+        .padding(8)
+        .background(chromeDark)
+        .transition(.opacity)
+    }
+
+    private func artworkDocument(_ track: Track, size: CGFloat) -> some View {
+        ZStack {
+            Color(hex: "#111820")
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text("CANVAS 01")
+                    Spacer()
+                    Text("100%")
+                }
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.white.opacity(0.42))
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+                .background(Color.white.opacity(0.035))
+
+                Spacer(minLength: 12)
+
+                ArtworkView(track: track, size: size, cornerRadius: 0)
+                    .overlay {
+                        Rectangle().stroke(Color.white.opacity(0.22), lineWidth: 1)
                     }
-                    .frame(maxWidth: columnWidth - 24)
+                    .shadow(color: .black.opacity(0.5), radius: 18, y: 10)
 
-                    Spacer(minLength: 8)
+                Spacer(minLength: 12)
+
+                HStack {
+                    Text("RGB / DIGITAL AUDIO")
+                    Spacer()
+                    Text("44.1 KHZ  •  STEREO")
                 }
-                .frame(width: columnWidth)
+                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.white.opacity(0.36))
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+            }
+        }
+        .overlay {
+            Rectangle().stroke(Color.black.opacity(0.7), lineWidth: 2)
+        }
+    }
 
-                if showsLyrics {
-                    playerStageDivider
+    private func trackInspector(_ track: Track) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle()
+                .fill(dynamicAccent(for: track))
+                .frame(height: 8)
 
-                    MacKaraokeLyricsView(track: track, showsChrome: false)
-                        .frame(width: columnWidth)
-                        .background(.black.opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(.white.opacity(0.09), lineWidth: 1)
-                        )
-                        .transition(.opacity.combined(with: .move(edge: .trailing)))
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("TRACK")
+                        .font(.system(size: 9, weight: .black, design: .monospaced))
+                        .tracking(1.5)
+                        .foregroundStyle(ink.opacity(0.48))
+
+                    Text(trackIndexText)
+                        .font(.system(size: 70, weight: .black, design: .monospaced))
+                        .foregroundStyle(cobalt)
+                        .lineLimit(1)
                 }
 
-                if showsQueue {
-                    playerStageDivider
+                Spacer()
 
-                    FullscreenQueueView()
-                        .frame(width: columnWidth)
-                        .background(.black.opacity(0.10))
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(.white.opacity(0.09), lineWidth: 1)
-                        )
-                        .transition(.opacity.combined(with: .move(edge: .trailing)))
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(player.elapsed.ariaClockText)
+                        .font(.system(size: 30, weight: .bold, design: .monospaced))
+                        .monospacedDigit()
+                    Text("OF " + track.duration.ariaDurationText)
+                        .font(.system(size: 9, weight: .black, design: .monospaced))
+                        .foregroundStyle(ink.opacity(0.45))
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 22)
-            .padding(.bottom, 16)
+            .padding(.horizontal, 22)
+            .padding(.top, 20)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(track.title)
+                    .font(.system(size: 28, weight: .black))
+                    .foregroundStyle(ink)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.72)
+
+                Text(track.artist.uppercased())
+                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                    .tracking(1)
+                    .foregroundStyle(cobalt)
+
+                Text(track.album)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(ink.opacity(0.55))
+                    .lineLimit(2)
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 14)
+
+            Spacer(minLength: 12)
+
+            ClassicSpectrumMeter(levels: player.spectrumLevels, color: signal)
+                .frame(height: 78)
+                .padding(.horizontal, 22)
+
+            HStack {
+                Text(player.isShuffleEnabled ? "RANDOM ON" : "RANDOM OFF")
+                Spacer()
+                Text(player.repeatMode.title.uppercased())
+            }
+            .font(.system(size: 8, weight: .black, design: .monospaced))
+            .foregroundStyle(ink.opacity(0.45))
+            .padding(.horizontal, 22)
+            .padding(.vertical, 15)
+        }
+        .foregroundStyle(ink)
+        .background(paper)
+        .overlay {
+            Rectangle().stroke(Color.black.opacity(0.55), lineWidth: 2)
+        }
+    }
+
+    private func alternateWorkspace(for track: Track, in size: CGSize) -> some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 14) {
+                ArtworkView(track: track, size: min(190, size.height * 0.32), cornerRadius: 0)
+                    .overlay { Rectangle().stroke(Color.black.opacity(0.42), lineWidth: 1) }
+
+                Text(track.title)
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundStyle(ink)
+                    .lineLimit(3)
+
+                Text(track.artist.uppercased())
+                    .font(.system(size: 9, weight: .black, design: .monospaced))
+                    .tracking(0.8)
+                    .foregroundStyle(cobalt)
+
+                Spacer()
+
+                Text(showsLyrics ? "DOCUMENT: LYRICS" : "DOCUMENT: PLAY QUEUE")
+                    .font(.system(size: 8, weight: .black, design: .monospaced))
+                    .foregroundStyle(ink.opacity(0.45))
+            }
+            .padding(18)
+            .frame(width: 250)
+            .frame(maxHeight: .infinity)
+            .background(paper)
+            .overlay { Rectangle().stroke(Color.black.opacity(0.52), lineWidth: 2) }
+
+            Group {
+                if showsLyrics {
+                    MacKaraokeLyricsView(track: track, showsChrome: false)
+                } else {
+                    FullscreenQueueView()
+                }
+            }
+            .background(Color(hex: "#111820"))
+            .overlay { Rectangle().stroke(Color.black.opacity(0.72), lineWidth: 2) }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .padding(8)
+        .background(chromeDark)
+        .transition(.opacity)
     }
 
-    private var playerStageDivider: some View {
-        Rectangle()
-            .fill(.white.opacity(0.11))
-            .frame(width: 1)
-            .padding(.vertical, 24)
-    }
+    private func controlShelf(track: Track) -> some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(player.elapsed.ariaClockText)
+                    .font(.system(size: 22, weight: .bold, design: .monospaced))
+                    .monospacedDigit()
+                Text("TIME ELAPSED")
+                    .font(.system(size: 7, weight: .black, design: .monospaced))
+                    .foregroundStyle(Color(hex: "#66D690").opacity(0.65))
+            }
+            .foregroundStyle(Color(hex: "#7CFFAA"))
+            .padding(.horizontal, 12)
+            .frame(width: 128, height: 54, alignment: .leading)
+            .background(ink)
+            .overlay { Rectangle().stroke(Color.black.opacity(0.8), lineWidth: 2) }
 
-    private var emptyPlayerStage: some View {
-        VStack(spacing: 16) {
-            Spacer()
+            ClassicTransportControls()
 
-            Image(systemName: "music.note")
-                .font(.system(size: 58, weight: .semibold))
-                .foregroundStyle(Color.ariaAccent)
+            Slider(
+                value: Binding(
+                    get: { player.progress },
+                    set: { player.seek(toProgress: $0) }
+                ),
+                in: 0...1
+            )
+            .tint(cobalt)
 
-            Text("Choose something to play")
-                .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(Color.ariaTextPrimary)
-
-            Text("Open an album or playlist from the sidebar.")
-                .font(.title3)
-                .foregroundStyle(Color.ariaTextSecondary)
-
-            Spacer()
+            HStack(spacing: 8) {
+                Image(systemName: player.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                Slider(value: $player.volume, in: 0...1)
+                    .tint(cobalt)
+                    .frame(width: 95)
+                Text(String(format: "%02d", Int(player.volume * 99)))
+                    .font(.system(size: 9, weight: .black, design: .monospaced))
+                    .frame(width: 20)
+            }
+            .foregroundStyle(ink.opacity(0.66))
         }
+        .padding(.horizontal, 10)
+        .frame(height: 76)
+        .background(chrome)
+        .overlay(alignment: .top) {
+            Rectangle().fill(Color.white.opacity(0.85)).frame(height: 1)
+        }
+    }
+
+    private var emptyWorkspace: some View {
+        VStack(spacing: 10) {
+            Text("NO FILE OPEN")
+                .font(.system(size: 42, weight: .black, design: .monospaced))
+            Text("CHOOSE A SONG FROM THE LIBRARY TO BEGIN")
+                .font(.system(size: 10, weight: .black, design: .monospaced))
+                .tracking(1)
+                .opacity(0.48)
+        }
+        .foregroundStyle(ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(paper)
+        .padding(8)
+        .background(chromeDark)
+    }
+
+    private var trackIndexText: String {
+        guard let track = player.currentTrack,
+              let index = player.queue.firstIndex(where: { $0.id == track.id }) else {
+            return "--"
+        }
+        return String(format: "%02d", index + 1)
+    }
+
+    private func dynamicAccent(for track: Track) -> Color {
+        Color(hex: (artworkPalette ?? track.artwork).topHex)
     }
 
     private func loadArtworkPalette() async {
@@ -217,10 +412,82 @@ struct FullscreenPlayerView: View {
         )
 
         guard !Task.isCancelled, player.currentTrack?.id == track.id else { return }
+        artworkPalette = palette ?? track.artwork
+    }
+}
 
-        withAnimation(.easeOut(duration: 0.28)) {
-            artworkPalette = palette ?? track.artwork
+private struct ClassicSpectrumMeter: View {
+    let levels: [Float]
+    let color: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            let visibleLevels = Array(levels.prefix(28))
+            let spacing: CGFloat = 2
+            let width = max(2, (proxy.size.width - spacing * CGFloat(max(0, visibleLevels.count - 1))) / CGFloat(max(1, visibleLevels.count)))
+
+            HStack(alignment: .bottom, spacing: spacing) {
+                ForEach(Array(visibleLevels.enumerated()), id: \.offset) { _, level in
+                    Rectangle()
+                        .fill(color)
+                        .frame(width: width, height: max(2, proxy.size.height * CGFloat(min(max(level, 0.025), 1))))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
+        .animation(.linear(duration: 0.07), value: levels)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ClassicTransportControls: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+
+    var body: some View {
+        HStack(spacing: 3) {
+            classicButton("shuffle", active: player.isShuffleEnabled, help: "Shuffle") {
+                player.toggleShuffle()
+            }
+            classicButton("backward.end.fill", help: "Previous") {
+                player.previous()
+            }
+            .disabled(!player.canSkipToPreviousTrack)
+
+            classicButton(player.isPlaying ? "pause.fill" : "play.fill", emphasized: true, help: player.isPlaying ? "Pause" : "Play") {
+                player.playPause()
+            }
+
+            classicButton("forward.end.fill", help: "Next") {
+                player.next()
+            }
+            .disabled(!player.canSkipToNextTrack)
+            classicButton(player.repeatMode.systemImage, active: player.repeatMode != .off, help: player.repeatMode.title) {
+                player.cycleRepeatMode()
+            }
+        }
+    }
+
+    private func classicButton(
+        _ image: String,
+        active: Bool = false,
+        emphasized: Bool = false,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: image)
+                .font(.system(size: emphasized ? 15 : 12, weight: .black))
+                .foregroundStyle(active ? Color(hex: "#F04B35") : Color(hex: "#17202A"))
+                .frame(width: emphasized ? 48 : 36, height: 42)
+                .background(emphasized ? Color(hex: "#F3F1E9") : Color(hex: "#D8D9D5"))
+                .overlay(alignment: .top) { Rectangle().fill(Color.white).frame(height: 1) }
+                .overlay(alignment: .leading) { Rectangle().fill(Color.white).frame(width: 1) }
+                .overlay(alignment: .bottom) { Rectangle().fill(Color.black.opacity(0.42)).frame(height: 1) }
+                .overlay(alignment: .trailing) { Rectangle().fill(Color.black.opacity(0.42)).frame(width: 1) }
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 
@@ -335,51 +602,16 @@ private struct FullscreenPlayerControls: View {
     @Binding var showsQueue: Bool
 
     var body: some View {
-        VStack(spacing: 11) {
-            ViewThatFits(in: .horizontal) {
-                wideControlRow
-                    .frame(minWidth: 730)
-
-                VStack(spacing: 8) {
-                    transportControls
-                    utilityControls
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            }
-
+        VStack(alignment: .leading, spacing: 14) {
             progressArea
-                .frame(maxWidth: 860)
-        }
-        .padding(.horizontal, 28)
-        .padding(.top, 12)
-        .padding(.bottom, 16)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(.white.opacity(0.10))
-                .frame(height: 1)
-        }
-    }
-
-    private var wideControlRow: some View {
-        ZStack {
             transportControls
-
             utilityControls
-                .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var transportControls: some View {
-        HStack(spacing: 20) {
-            playerButton(
-                systemImage: "shuffle",
-                isActive: player.isShuffleEnabled,
-                help: player.isShuffleEnabled ? "Turn shuffle off" : "Shuffle queue"
-            ) {
-                player.toggleShuffle()
-            }
-
+        HStack(spacing: 8) {
             playerButton(systemImage: "backward.fill", help: "Previous") {
                 player.previous()
             }
@@ -388,10 +620,14 @@ private struct FullscreenPlayerControls: View {
             Button {
                 player.playPause()
             } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 23, weight: .bold))
-                    .frame(width: 54, height: 54)
-                    .background(Circle().fill(Color.ariaTextPrimary))
+                Label(
+                    player.isPlaying ? "Pause" : "Play",
+                    systemImage: player.isPlaying ? "pause.fill" : "play.fill"
+                )
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.ariaAccent))
                     .foregroundStyle(Color.ariaBackground)
             }
             .buttonStyle(.plain)
@@ -401,41 +637,55 @@ private struct FullscreenPlayerControls: View {
                 player.next()
             }
             .disabled(!player.canSkipToNextTrack)
-
-            playerButton(
-                systemImage: player.repeatMode.systemImage,
-                isActive: player.repeatMode != .off,
-                help: player.repeatMode.title
-            ) {
-                player.cycleRepeatMode()
-            }
-
-            playerButton(
-                systemImage: "waveform",
-                isActive: player.isAudioVisualizerEnabled,
-                help: player.isAudioVisualizerEnabled ? "Hide visualizer" : "Show visualizer"
-            ) {
-                player.toggleAudioVisualizer()
-            }
         }
     }
 
     private var utilityControls: some View {
-        HStack(spacing: 10) {
-            playerButton(
-                systemImage: "quote.bubble",
-                isActive: showsLyrics,
-                help: showsLyrics ? "Hide lyrics" : "Show lyrics"
-            ) {
-                showsLyrics.toggle()
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                playerButton(
+                    systemImage: "shuffle",
+                    isActive: player.isShuffleEnabled,
+                    help: player.isShuffleEnabled ? "Turn shuffle off" : "Shuffle queue"
+                ) {
+                    player.toggleShuffle()
+                }
 
-            playerButton(
-                systemImage: "list.bullet",
-                isActive: showsQueue,
-                help: showsQueue ? "Hide queue" : "Show queue"
-            ) {
-                showsQueue.toggle()
+                playerButton(
+                    systemImage: player.repeatMode.systemImage,
+                    isActive: player.repeatMode != .off,
+                    help: player.repeatMode.title
+                ) {
+                    player.cycleRepeatMode()
+                }
+
+                playerButton(
+                    systemImage: "quote.bubble",
+                    isActive: showsLyrics,
+                    help: showsLyrics ? "Hide lyrics" : "Show lyrics"
+                ) {
+                    let shouldShow = !showsLyrics
+                    showsLyrics = shouldShow
+                    if shouldShow { showsQueue = false }
+                }
+
+                playerButton(
+                    systemImage: "list.bullet",
+                    isActive: showsQueue,
+                    help: showsQueue ? "Hide queue" : "Show queue"
+                ) {
+                    let shouldShow = !showsQueue
+                    showsQueue = shouldShow
+                    if shouldShow { showsLyrics = false }
+                }
+
+                playerButton(
+                    systemImage: "waveform",
+                    isActive: player.isAudioVisualizerEnabled,
+                    help: player.isAudioVisualizerEnabled ? "Hide visualizer" : "Show visualizer"
+                ) {
+                    player.toggleAudioVisualizer()
+                }
             }
 
             HStack(spacing: 8) {
@@ -444,17 +694,14 @@ private struct FullscreenPlayerControls: View {
 
                 Slider(value: $player.volume, in: 0...1)
                     .tint(Color.ariaTextPrimary)
-                    .frame(width: 104)
+                    .frame(maxWidth: .infinity)
             }
             .help("Volume")
         }
     }
 
     private var progressArea: some View {
-        HStack(spacing: 10) {
-            Text(player.elapsed.ariaClockText)
-                .frame(width: 46, alignment: .trailing)
-
+        VStack(spacing: 6) {
             Slider(
                 value: Binding(
                     get: { player.progress },
@@ -465,8 +712,11 @@ private struct FullscreenPlayerControls: View {
             .tint(Color.ariaTextPrimary)
             .disabled(player.currentTrack == nil)
 
-            Text((player.currentTrack?.duration ?? 0).ariaDurationText)
-                .frame(width: 46, alignment: .leading)
+            HStack {
+                Text(player.elapsed.ariaClockText)
+                Spacer()
+                Text((player.currentTrack?.duration ?? 0).ariaDurationText)
+            }
         }
         .font(.caption.monospacedDigit())
         .foregroundStyle(Color.ariaTextPrimary.opacity(0.62))
@@ -482,7 +732,8 @@ private struct FullscreenPlayerControls: View {
             Image(systemName: systemImage)
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(isActive ? Color.ariaAccent : Color.ariaTextPrimary.opacity(0.72))
-                .frame(width: 30, height: 30)
+                .frame(width: 50, height: 50)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .help(help)
@@ -499,16 +750,19 @@ struct PlayerBar: View {
                 InlinePlaybackError(message: playbackError)
             }
 
-            Divider()
-                .overlay(Color.ariaDivider)
+            compactTimeline
 
             ViewThatFits(in: .horizontal) {
                 expandedLayout
                 compactLayout
             }
             .padding(.horizontal, 22)
-            .padding(.vertical, 10)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
             .background(Color.ariaSurface)
+            .overlay(alignment: .top) {
+                Rectangle().fill(Color.ariaDivider).frame(height: 1)
+            }
         }
     }
 
@@ -519,16 +773,14 @@ struct PlayerBar: View {
 
             Spacer(minLength: 8)
 
-            VStack(spacing: 9) {
-                transportControls
-                progressArea
-            }
-            .frame(minWidth: 280, idealWidth: 440, maxWidth: 620)
+            transportControls
 
             Spacer(minLength: 8)
 
-            volumeControl
-                .frame(width: 120)
+            HStack(spacing: 14) {
+                secondaryControls
+                volumeControl.frame(width: 120)
+            }
         }
     }
 
@@ -542,9 +794,10 @@ struct PlayerBar: View {
                     .frame(width: 118)
             }
 
-            VStack(spacing: 9) {
+            HStack {
                 transportControls
-                progressArea
+                Spacer()
+                secondaryControls
             }
         }
     }
@@ -552,7 +805,7 @@ struct PlayerBar: View {
     private var currentTrackSummary: some View {
         HStack(spacing: 12) {
             if let track = player.currentTrack {
-                ArtworkView(track: track, size: 48, cornerRadius: 7)
+                ArtworkView(track: track, size: 46, cornerRadius: 4)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(track.title)
@@ -591,15 +844,7 @@ struct PlayerBar: View {
     }
 
     private var transportControls: some View {
-        HStack(spacing: 16) {
-            Button {
-                player.toggleShuffle()
-            } label: {
-                Image(systemName: "shuffle")
-                    .foregroundStyle(player.isShuffleEnabled ? Color.ariaAccent : Color.ariaTextSecondary)
-            }
-            .help(player.isShuffleEnabled ? "Turn shuffle off" : "Shuffle queue")
-
+        HStack(spacing: 14) {
             Button {
                 player.previous()
             } label: {
@@ -613,8 +858,8 @@ struct PlayerBar: View {
             } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 18, weight: .bold))
-                    .frame(width: 42, height: 42)
-                    .background(Circle().fill(Color.ariaAccent))
+                    .frame(width: 48, height: 40)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.ariaAccent))
                     .foregroundStyle(Color.black)
             }
             .buttonStyle(.plain)
@@ -627,6 +872,20 @@ struct PlayerBar: View {
             }
             .disabled(!player.canSkipToNextTrack)
             .help("Next")
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 16, weight: .semibold))
+    }
+
+    private var secondaryControls: some View {
+        HStack(spacing: 12) {
+            Button {
+                player.toggleShuffle()
+            } label: {
+                Image(systemName: "shuffle")
+                    .foregroundStyle(player.isShuffleEnabled ? Color.ariaAccent : Color.ariaTextSecondary)
+            }
+            .help(player.isShuffleEnabled ? "Turn shuffle off" : "Shuffle queue")
 
             Button {
                 player.cycleRepeatMode()
@@ -665,10 +924,10 @@ struct PlayerBar: View {
             .help("Player options")
         }
         .buttonStyle(.plain)
-        .font(.system(size: 16, weight: .semibold))
+        .font(.system(size: 14, weight: .semibold))
     }
 
-    private var progressArea: some View {
+    private var compactTimeline: some View {
         HStack(spacing: 10) {
             Text(player.elapsed.ariaClockText)
                 .frame(width: 46, alignment: .trailing)
@@ -688,6 +947,9 @@ struct PlayerBar: View {
         }
         .font(.caption.monospacedDigit())
         .foregroundStyle(Color.ariaTextSecondary)
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .background(Color.ariaSurface)
     }
 
     private var volumeControl: some View {

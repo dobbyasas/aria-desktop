@@ -66,7 +66,7 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 if isSidebarVisible {
                     sidebar
-                        .frame(width: 220)
+                        .frame(width: 260)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
 
@@ -77,6 +77,8 @@ struct ContentView: View {
                         libraryDetail
                     }
                 }
+                .id(selectedDestination)
+                .transition(.opacity.combined(with: .scale(scale: 0.992)))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
@@ -90,6 +92,7 @@ struct ContentView: View {
         }
         .background(Color.ariaBackground)
         .animation(.easeInOut(duration: 0.2), value: isSidebarVisible)
+        .animation(.spring(response: 0.42, dampingFraction: 0.86), value: selectedDestination)
         .preferredColorScheme(.dark)
         .sheet(
             isPresented: Binding(
@@ -133,12 +136,7 @@ struct ContentView: View {
 
     private var libraryDetail: some View {
         ZStack(alignment: .bottom) {
-            LinearGradient(
-                colors: [Color.ariaPanel.opacity(0.58), Color.ariaBackground],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            Color.ariaBackground.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 ZStack {
@@ -210,134 +208,115 @@ struct ContentView: View {
     }
 
     private var sidebar: some View {
-        ZStack(alignment: .trailing) {
-            Color.ariaPanel
-                .ignoresSafeArea()
+        collectionSidebar
+        .background(Color.ariaSidebarBackground)
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(Color.ariaDivider).frame(width: 1)
+        }
+    }
 
-            VStack(spacing: 0) {
-                ZStack {
-                    Image(nsImage: NSApplication.shared.applicationIconImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 48, height: 48)
-                        .accessibilityLabel("Aria")
+    private var collectionSidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Aria")
+                    .font(.system(size: 26, weight: .bold))
+                Spacer()
+                sidebarToggleButton
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 20)
+            .padding(.bottom, 14)
 
-                    HStack {
-                        Spacer()
-                        sidebarToggleButton
-                    }
+            HStack(spacing: 10) {
+                Circle().fill(serverStatusColor).frame(width: 7, height: 7)
+                Text(serverStatusTitle)
+                Spacer()
+                Text("\(player.catalog.count) songs")
+            }
+            .font(.caption)
+            .foregroundStyle(Color.ariaTextSecondary)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 18)
+
+            VStack(spacing: 3) {
+                sidebarNavigationButton(title: "Now Playing", systemImage: "play.fill", destination: .player)
+                sidebarNavigationButton(title: "Songs", systemImage: "music.note", destination: .songs)
+                sidebarNavigationButton(title: "Albums", systemImage: "square.stack", destination: .albums)
+            }
+            .padding(.horizontal, 10)
+
+            Button {
+                isDownloadSheetPresented = true
+            } label: {
+                Label("Add music", systemImage: "arrow.down.circle")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.ariaTextSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 10)
+
+            HStack {
+                Text("Playlists")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.ariaTextSecondary)
+                Spacer()
+                Button {
+                    let playlist = player.createPlaylist()
+                    selectedAlbumID = nil
+                    selectedArtistName = nil
+                    selectedDestination = .playlist(playlist.id)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.ariaTextSecondary)
+                        .frame(width: 26, height: 26)
                 }
-                .frame(height: 64)
-                .padding(.horizontal, 10)
+                .buttonStyle(.plain)
+                .help("New Playlist")
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 24)
+            .padding(.bottom, 9)
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        sidebarNavigationButton(
-                            title: "Player",
-                            systemImage: "play.square.fill",
-                            destination: .player
-                        )
-
-                        sidebarNavigationButton(
-                            title: "Songs",
-                            systemImage: "music.note.list",
-                            destination: .songs
-                        )
-
-                        sidebarNavigationButton(
-                            title: "Albums",
-                            systemImage: "square.stack.fill",
-                            destination: .albums
-                        )
-
+            ScrollView {
+                LazyVStack(spacing: 5) {
+                    ForEach(sortedPlaylists) { playlist in
+                        let destination = MacSidebarDestination.playlist(playlist.id)
                         Button {
-                            isDownloadSheetPresented = true
-                        } label: {
-                            SidebarNavigationRow(
-                                title: "Download Music",
-                                systemImage: "arrow.down.circle",
-                                isSelected: false,
-                                usesAccent: true
-                            )
-                        }
-                        .buttonStyle(.plain)
-
-                        if !player.downloadQueue.isEmpty {
-                            SidebarDownloadStatus(
-                                activeItem: player.activeDownloadItem,
-                                totalETA: player.downloadQueueEstimatedRemaining,
-                                waitingCount: player.waitingDownloadCount
-                            )
-                            .padding(.horizontal, 9)
-                            .padding(.top, 4)
-                        }
-
-                        Text("Playlists")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color.ariaTextSecondary.opacity(0.68))
-                            .padding(.horizontal, 9)
-                            .padding(.top, 18)
-                            .padding(.bottom, 4)
-
-                        Button {
-                            let playlist = player.createPlaylist()
                             selectedAlbumID = nil
                             selectedArtistName = nil
-                            selectedDestination = .playlist(playlist.id)
+                            selectedDestination = destination
                         } label: {
-                            SidebarNavigationRow(
-                                title: "New Playlist",
-                                systemImage: "plus",
-                                isSelected: false,
-                                usesAccent: true
+                            SidebarPlaylistRow(
+                                playlist: playlist,
+                                isSelected: selectedDestination == destination
                             )
                         }
                         .buttonStyle(.plain)
-
-                        ForEach(sortedPlaylists) { playlist in
-                            let destination = MacSidebarDestination.playlist(playlist.id)
-
-                            Button {
-                                selectedAlbumID = nil
-                                selectedArtistName = nil
-                                selectedDestination = destination
-                            } label: {
-                                SidebarPlaylistRow(
-                                    playlist: playlist,
-                                    isSelected: selectedDestination == destination
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
                     }
-                    .padding(.bottom, 16)
                 }
-
-                Divider()
-                    .overlay(Color.ariaDivider)
-
-                HStack(spacing: 10) {
-                    Text(AriaRelease.displayText)
-                        .monospacedDigit()
-
-                    Spacer()
-
-                    Label(serverStatusTitle, systemImage: serverStatusImage)
-                        .foregroundStyle(serverStatusColor)
-                }
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(Color.ariaTextSecondary.opacity(0.78))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Aria \(AriaRelease.displayText), \(serverStatusTitle)")
+                .padding(.horizontal, 8)
             }
 
-            Rectangle()
-                .fill(Color.ariaDivider)
-                .frame(width: 1)
-                .ignoresSafeArea()
+            if !player.downloadQueue.isEmpty {
+                SidebarDownloadStatus(
+                    activeItem: player.activeDownloadItem,
+                    totalETA: player.downloadQueueEstimatedRemaining,
+                    waitingCount: player.waitingDownloadCount
+                )
+                .padding(10)
+            }
+
+            Text(AriaRelease.displayText.uppercased())
+                .font(.system(size: 9, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(Color.ariaTextSecondary.opacity(0.62))
+                .padding(16)
         }
+        .background(Color.ariaSidebarBackground)
     }
 
     private var sidebarToggleButton: some View {
@@ -348,7 +327,7 @@ struct ContentView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color.ariaTextPrimary)
                 .frame(width: 30, height: 30)
-                .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
+                .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .keyboardShortcut("s", modifiers: [.command, .control])
@@ -379,9 +358,9 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(detailTitle)
-                    .font(.system(size: 30, weight: .semibold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(Color.ariaTextPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
@@ -426,13 +405,13 @@ struct ContentView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.vertical, 9)
                 .frame(minWidth: 190, idealWidth: 280, maxWidth: 320)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(Color.ariaSurface)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .stroke(Color.ariaDivider, lineWidth: 1)
                         )
                 )
@@ -456,7 +435,7 @@ struct ContentView: View {
             .help("Refresh library")
         }
         .padding(.horizontal, 24)
-        .padding(.top, 24)
+        .padding(.top, 22)
         .padding(.bottom, 18)
     }
 
@@ -659,11 +638,19 @@ struct SidebarNavigationRow: View {
     var usesAccent = false
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 11) {
             Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 20)
-                .foregroundStyle(isSelected || usesAccent ? Color.ariaAccent : Color.ariaTextSecondary)
+                .font(.system(size: 14, weight: .bold))
+                .frame(width: 28, height: 28)
+                .foregroundStyle(
+                    isSelected
+                        ? Color.ariaBackground
+                        : (usesAccent ? Color.ariaAccent : Color.ariaTextSecondary)
+                )
+                .background(
+                    isSelected ? Color.ariaAccent : Color.white.opacity(0.04),
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                )
 
             Text(title)
                 .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
@@ -671,24 +658,16 @@ struct SidebarNavigationRow: View {
 
             Spacer()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
         .background(sidebarSelectionBackground)
         .contentShape(Rectangle())
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var sidebarSelectionBackground: some View {
-        ZStack(alignment: .leading) {
-            Rectangle()
-                .fill(isSelected ? Color.ariaAccent.opacity(0.13) : Color.clear)
-
-            if isSelected {
-                Rectangle()
-                    .fill(Color.ariaAccent)
-                    .frame(width: 2)
-            }
-        }
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .fill(isSelected ? Color.white.opacity(0.075) : Color.clear)
     }
 }
 
@@ -708,19 +687,11 @@ struct SidebarPlaylistRow: View {
             Spacer()
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background {
-            ZStack(alignment: .leading) {
-                Rectangle()
-                    .fill(isSelected ? Color.ariaAccent.opacity(0.13) : Color.clear)
-
-                if isSelected {
-                    Rectangle()
-                        .fill(Color.ariaAccent)
-                        .frame(width: 2)
-                }
-            }
-        }
+        .padding(.vertical, 6)
+        .background(
+            isSelected ? Color.white.opacity(0.075) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
         .contentShape(Rectangle())
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -745,10 +716,16 @@ struct SongsView: View {
                 let showsAlbum = proxy.size.width >= 760
 
                 ScrollView {
-                    VStack(spacing: 0) {
+                    VStack(spacing: 18) {
+                        LibraryOverviewCard(
+                            tracks: tracks,
+                            title: "Your library",
+                            subtitle: "\(tracks.count) songs"
+                        )
+
                         TrackListHeader(showAlbum: showsAlbum)
 
-                        LazyVStack(spacing: 2) {
+                        LazyVStack(spacing: 0) {
                             ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                                 TrackRow(
                                     track: track,
@@ -1063,7 +1040,7 @@ struct AlbumsView: View {
                     }
                 }
                 .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .padding(.bottom, 52)
             }
         }
     }
@@ -1427,74 +1404,67 @@ struct LibraryOverviewCard: View {
     }
 
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 22) {
             if let artworkTrack {
-                ArtworkView(track: artworkTrack, size: 104, cornerRadius: 10)
-            } else {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.ariaPanelRaised)
-                    .frame(width: 104, height: 104)
-                    .overlay(
-                        Image(systemName: "music.note")
-                            .font(.system(size: 32, weight: .semibold))
-                            .foregroundStyle(Color.ariaAccent)
-                    )
+                ArtworkView(track: artworkTrack, size: 118, cornerRadius: 8)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title)
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(Color.ariaTextPrimary)
-                    .lineLimit(1)
-
-                Text(subtitle)
-                    .font(.subheadline)
+            VStack(alignment: .leading, spacing: 7) {
+                Text(player.currentTrack == nil ? "Library" : "Continue listening")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(Color.ariaTextSecondary)
-
                 if let currentTrack = player.currentTrack {
-                    Text("Now playing: \(currentTrack.title)")
-                        .font(.caption)
-                        .foregroundStyle(Color.ariaAccent)
+                    Text(currentTrack.title)
+                        .font(.system(size: 25, weight: .bold))
+                        .foregroundStyle(Color.ariaTextPrimary)
                         .lineLimit(1)
+                    Text(currentTrack.artist)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.ariaTextSecondary)
+                        .lineLimit(1)
+                } else {
+                    Text(title)
+                        .font(.system(size: 25, weight: .bold))
+                        .foregroundStyle(Color.ariaTextPrimary)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.ariaTextSecondary)
                 }
             }
 
             Spacer()
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Button {
-                    if let firstTrack = tracks.first {
-                        player.play(firstTrack, from: tracks)
-                    }
+                    if let firstTrack = tracks.first { player.play(firstTrack, from: tracks) }
                 } label: {
                     Label("Play", systemImage: "play.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.ariaBackground)
+                        .padding(.horizontal, 16)
+                        .frame(height: 38)
+                        .background(Color.ariaAccent, in: Capsule())
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.ariaAccent)
+                .buttonStyle(.plain)
 
                 Button {
-                    if !player.isShuffleEnabled {
-                        player.toggleShuffle()
-                    }
-
+                    if !player.isShuffleEnabled { player.toggleShuffle() }
                     if let firstTrack = tracks.randomElement() ?? tracks.first {
                         player.play(firstTrack, from: tracks)
                     }
                 } label: {
-                    Label("Shuffle", systemImage: "shuffle")
+                    Image(systemName: "shuffle")
+                        .frame(width: 38, height: 38)
+                        .background(Color.white.opacity(0.06), in: Circle())
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .help("Shuffle")
             }
         }
         .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.ariaSurface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.ariaDivider, lineWidth: 1)
-                )
-        )
+        .frame(height: 154)
+        .background(Color.ariaSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -1635,7 +1605,7 @@ struct TrackRow: View {
             .buttonStyle(.plain)
             .help("Play")
 
-            ArtworkView(track: track, size: 44, cornerRadius: 7)
+            ArtworkView(track: track, size: 44, cornerRadius: 5)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -1722,10 +1692,8 @@ struct TrackRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(rowBackground)
-        )
+        .background(rowBackground)
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.ariaDivider).frame(height: 1) }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .onTapGesture(count: 2) {
@@ -1787,7 +1755,7 @@ struct AlbumCard: View {
         } label: {
             VStack(alignment: .leading, spacing: 11) {
                 if let artworkTrack = album.artworkTrack {
-                    ArtworkView(track: artworkTrack, size: 158, cornerRadius: 8)
+                    ArtworkView(track: artworkTrack, size: 158, cornerRadius: 18)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
@@ -1809,13 +1777,13 @@ struct AlbumCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
+            .padding(10)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.ariaSurface)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.045))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .stroke(Color.ariaDivider, lineWidth: 1)
             )
         }
