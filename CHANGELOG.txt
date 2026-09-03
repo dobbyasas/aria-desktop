@@ -1,6 +1,12 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.15.1
+Created: 2026-09-03
+
+Changed:
+- Replaced the Mac navigation rail with the blue collection sidebar, including clearer destinations, live library status, inline music import, and compact playlist management.
+
 Version 1.15.0
 Created: 2026-09-01
 
