@@ -23,6 +23,8 @@
 		5B0001142D00000000000001 /* YouTubeMusicSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002152D00000000000001 /* YouTubeMusicSearchClient.swift */; };
 		5B0001152D00000000000001 /* VinylPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002162D00000000000001 /* VinylPlayerView.swift */; };
 		5B0001162D00000000000001 /* VinylPlayerGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002172D00000000000001 /* VinylPlayerGeometry.swift */; };
+		5B0001172D00000000000001 /* GaplessAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002182D00000000000001 /* GaplessAudioPlayer.swift */; };
+		5B0001182D00000000000001 /* GaplessAudioFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002192D00000000000001 /* GaplessAudioFiles.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +46,8 @@
 		5B0002152D00000000000001 /* YouTubeMusicSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeMusicSearchClient.swift; sourceTree = "<group>"; };
 		5B0002162D00000000000001 /* VinylPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VinylPlayerView.swift; sourceTree = "<group>"; };
 		5B0002172D00000000000001 /* VinylPlayerGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VinylPlayerGeometry.swift; sourceTree = "<group>"; };
+		5B0002182D00000000000001 /* GaplessAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessAudioPlayer.swift; sourceTree = "<group>"; };
+		5B0002192D00000000000001 /* GaplessAudioFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessAudioFiles.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -111,6 +115,8 @@
 				5B0002042D00000000000001 /* AriaServerClient.swift */,
 				5B0002052D00000000000001 /* AriaArtworkCache.swift */,
 				5B0002142D00000000000001 /* AudioSpectrumAnalyzer.swift */,
+				5B0002192D00000000000001 /* GaplessAudioFiles.swift */,
+				5B0002182D00000000000001 /* GaplessAudioPlayer.swift */,
 				5B0002152D00000000000001 /* YouTubeMusicSearchClient.swift */,
 			);
 			path = Services;
@@ -228,6 +234,8 @@
 				5B0001112D00000000000001 /* Color+Aria.swift in Sources */,
 				5B0001162D00000000000001 /* VinylPlayerGeometry.swift in Sources */,
 				5B0001132D00000000000001 /* AudioSpectrumAnalyzer.swift in Sources */,
+				5B0001182D00000000000001 /* GaplessAudioFiles.swift in Sources */,
+				5B0001172D00000000000001 /* GaplessAudioPlayer.swift in Sources */,
 				5B0001142D00000000000001 /* YouTubeMusicSearchClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -364,7 +372,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.19.0;
+				MARKETING_VERSION = 1.20.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tofi.aria.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -389,7 +397,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.19.0;
+				MARKETING_VERSION = 1.20.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tofi.aria.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;

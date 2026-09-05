@@ -117,10 +117,13 @@ final class MacPlayerViewModel: ObservableObject {
     @Published private(set) var albums: [AriaAlbum] = []
     @Published private(set) var playlists: [AriaPlaylist] = []
     @Published private(set) var playlistLastPlayedAt: [UUID: TimeInterval] = [:]
-    @Published private(set) var queue: [Track] = []
+    @Published private(set) var queue: [Track] = [] {
+        didSet { scheduleAudioQueueUpdate() }
+    }
     @Published private(set) var isCatalogLoading = false
     @Published private(set) var catalogErrorMessage: String?
     @Published private(set) var playbackErrorMessage: String?
+    @Published private(set) var playbackPreparationMessage: String?
     @Published private(set) var playbackSessionRole: PlaybackSessionRole?
     @Published private(set) var playbackHostName: String?
     @Published private(set) var playbackDevices: [PlaybackDevice] = []
@@ -143,7 +146,9 @@ final class MacPlayerViewModel: ObservableObject {
     @Published private(set) var isAudioVisualizerEnabled = false
     @Published private(set) var spectrumLevels = Array(repeating: Float(0.04), count: 36)
     @Published var isShuffleEnabled = false
-    @Published var repeatMode: RepeatMode = .off
+    @Published var repeatMode: RepeatMode = .off {
+        didSet { scheduleAudioQueueUpdate() }
+    }
     @Published private(set) var metadataEditorSession: TrackMetadataEditorSession?
     @Published var volume: Double = 0.86 {
         didSet {
@@ -157,11 +162,9 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     private let serverClient: AriaServerClient
-    private var audioPlayer: AVPlayer?
-    private var endObserver: NSObjectProtocol?
-    private var failureObserver: NSObjectProtocol?
+    private var audioPlayer: GaplessAudioPlayer?
+    private var audioQueueUpdateTask: Task<Void, Never>?
     private var timer: AnyCancellable?
-    private var spectrumSetupTask: Task<Void, Never>?
     private var audioSpectrumAnalyzer: AudioSpectrumAnalyzer?
     private var downloadPollTask: Task<Void, Never>?
     private var playbackSyncTask: Task<Void, Never>?
@@ -202,16 +205,8 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     deinit {
-        if let endObserver {
-            NotificationCenter.default.removeObserver(endObserver)
-        }
-
-        if let failureObserver {
-            NotificationCenter.default.removeObserver(failureObserver)
-        }
-
         timer?.cancel()
-        spectrumSetupTask?.cancel()
+        audioQueueUpdateTask?.cancel()
         downloadPollTask?.cancel()
         playbackSyncTask?.cancel()
         volumeCommandTask?.cancel()
@@ -393,7 +388,7 @@ final class MacPlayerViewModel: ObservableObject {
             return
         }
 
-        if audioPlayer == nil {
+        if audioPlayer?.isLoaded != true {
             beginPlayback(for: currentTrack)
             return
         }
@@ -473,7 +468,7 @@ final class MacPlayerViewModel: ObservableObject {
             sendPlaybackCommand(action: "seek", position: targetTime)
             return
         }
-        audioPlayer?.seek(to: CMTime(seconds: targetTime, preferredTimescale: 600))
+        audioPlayer?.seek(to: targetTime)
     }
 
     func toggleShuffle() {
@@ -494,17 +489,7 @@ final class MacPlayerViewModel: ObservableObject {
 
     func toggleAudioVisualizer() {
         isAudioVisualizerEnabled.toggle()
-
-        if isAudioVisualizerEnabled {
-            if let item = audioPlayer?.currentItem {
-                configureSpectrumAnalysis(for: item)
-            }
-        } else {
-            spectrumSetupTask?.cancel()
-            audioPlayer?.currentItem?.audioMix = nil
-            audioSpectrumAnalyzer = nil
-            resetSpectrum()
-        }
+        configureSpectrumAnalysis()
     }
 
     func toggleLyrics() {
@@ -984,12 +969,8 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     private var currentDuration: TimeInterval {
-        if let duration = currentTrack?.duration, duration > 0 {
-            return duration
-        }
-
-        let playerDuration = audioPlayer?.currentItem?.duration.seconds ?? 0
-        return playerDuration.isFinite ? max(playerDuration, 0) : 0
+        if let duration = audioPlayer?.duration, duration > 0 { return duration }
+        return currentTrack?.duration ?? 0
     }
 
     private func loadMetadata(for session: TrackMetadataEditorSession) async {
@@ -1121,11 +1102,11 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     private func restart(_ track: Track) {
-        if let audioPlayer, currentTrack?.id == track.id {
+        if let audioPlayer, audioPlayer.isLoaded, currentTrack?.id == track.id {
             elapsed = 0
             isPlaying = true
             playbackErrorMessage = nil
-            audioPlayer.seek(to: .zero)
+            audioPlayer.seek(to: 0)
             audioPlayer.play()
             startTimer()
         } else {
@@ -1133,50 +1114,46 @@ final class MacPlayerViewModel: ObservableObject {
         }
     }
 
-    private func startPlayback(for track: Track) -> Bool {
-        audioPlayer?.pause()
-        removeItemObservers()
-        spectrumSetupTask?.cancel()
-        audioSpectrumAnalyzer = nil
-        resetSpectrum()
-
-        guard let streamURL = track.streamURL else {
-            audioPlayer = nil
+    private func startPlayback(for track: Track, offset: TimeInterval = 0, playing: Bool = true) -> Bool {
+        guard track.streamURL != nil else {
+            audioPlayer?.stop()
             playbackErrorMessage = "This song is missing a playable stream URL."
             return false
         }
-
-        let item = AVPlayerItem(url: streamURL)
-        let player = AVPlayer(playerItem: item)
-        player.volume = Float(min(max(volume, 0), 1))
-        audioPlayer = player
-        if isAudioVisualizerEnabled {
-            configureSpectrumAnalysis(for: item)
-        }
-
-        endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: item,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.next()
+        if audioPlayer == nil {
+            let output = GaplessAudioPlayer()
+            output.onTrackChanged = { [weak self] track in
+                guard let self else { return }
+                self.currentTrack = self.freshestVersion(of: track)
+                self.elapsed = 0
+                self.playbackErrorMessage = nil
             }
-        }
-
-        failureObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemFailedToPlayToEndTime,
-            object: item,
-            queue: .main
-        ) { [weak self] notification in
-            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
-            Task { @MainActor in
-                self?.handlePlaybackFailure(error?.localizedDescription)
+            output.onFinished = { [weak self] in
+                guard let self else { return }
+                self.elapsed = self.currentDuration
+                self.isPlaying = false
+                self.stopTimer()
+                self.resetSpectrum()
             }
+            output.onFailure = { [weak self] message in self?.handlePlaybackFailure(message) }
+            output.onPreparationChanged = { [weak self] message in self?.playbackPreparationMessage = message }
+            audioPlayer = output
         }
-
-        player.play()
+        playbackErrorMessage = nil
+        audioPlayer?.volume = Float(min(max(volume, 0), 1))
+        audioPlayer?.load(track, queue: queue, repeatMode: repeatMode, offset: offset, playing: playing)
+        configureSpectrumAnalysis()
         return true
+    }
+
+    private func scheduleAudioQueueUpdate() {
+        audioQueueUpdateTask?.cancel()
+        audioQueueUpdateTask = Task { @MainActor [weak self] in
+            // Coalesce remove/insert operations into one final queue snapshot.
+            await Task.yield()
+            guard !Task.isCancelled, let self, !self.isRemoteController else { return }
+            self.audioPlayer?.updateQueue(self.queue, repeatMode: self.repeatMode)
+        }
     }
 
     private func startTimer() {
@@ -1186,7 +1163,7 @@ final class MacPlayerViewModel: ObservableObject {
             .sink { [weak self] _ in
                 guard let self, isPlaying else { return }
 
-                if let seconds = audioPlayer?.currentTime().seconds, seconds.isFinite {
+                if let seconds = audioPlayer?.elapsed, seconds.isFinite {
                     elapsed = max(seconds, 0)
                 }
 
@@ -1199,18 +1176,6 @@ final class MacPlayerViewModel: ObservableObject {
         timer = nil
     }
 
-    private func removeItemObservers() {
-        if let endObserver {
-            NotificationCenter.default.removeObserver(endObserver)
-            self.endObserver = nil
-        }
-
-        if let failureObserver {
-            NotificationCenter.default.removeObserver(failureObserver)
-            self.failureObserver = nil
-        }
-    }
-
     private func handlePlaybackFailure(_ message: String?) {
         playbackErrorMessage = message ?? "Aria could not play this song."
         isPlaying = false
@@ -1218,45 +1183,22 @@ final class MacPlayerViewModel: ObservableObject {
         resetSpectrum()
     }
 
-    private func configureSpectrumAnalysis(for item: AVPlayerItem) {
-        let asset = item.asset
-
-        spectrumSetupTask = Task { @MainActor [weak self, weak item] in
-            do {
-                let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-                try Task.checkCancellation()
-
-                guard
-                    let self,
-                    let item,
-                    audioPlayer?.currentItem === item,
-                    let audioTrack = audioTracks.first
-                else {
-                    return
+    private func configureSpectrumAnalysis() {
+        audioSpectrumAnalyzer = nil
+        resetSpectrum()
+        let analyzer = AudioSpectrumAnalyzer(bandCount: Self.spectrumBandCount)
+        if isAudioVisualizerEnabled {
+            audioSpectrumAnalyzer = analyzer
+            analyzer.onLevels = { [weak self, weak analyzer] levels in
+                Task { @MainActor in
+                    guard let self, let analyzer, self.audioSpectrumAnalyzer === analyzer,
+                          self.isPlaying else { return }
+                    self.spectrumLevels = levels
                 }
-
-                let analyzer = AudioSpectrumAnalyzer(bandCount: Self.spectrumBandCount)
-                analyzer.onLevels = { [weak self, weak analyzer] levels in
-                    Task { @MainActor in
-                        guard
-                            let self,
-                            let analyzer,
-                            self.audioSpectrumAnalyzer === analyzer,
-                            self.isPlaying
-                        else {
-                            return
-                        }
-
-                        self.spectrumLevels = levels
-                    }
-                }
-
-                guard let audioMix = analyzer.makeAudioMix(for: audioTrack) else { return }
-                audioSpectrumAnalyzer = analyzer
-                item.audioMix = audioMix
-            } catch {
-                return
             }
+        }
+        audioPlayer?.setAnalysisEnabled(isAudioVisualizerEnabled) { buffer in
+            analyzer.analyze(buffer)
         }
     }
 
@@ -1335,6 +1277,7 @@ final class MacPlayerViewModel: ObservableObject {
         }
 
         if tracks.isEmpty {
+            audioPlayer?.stop()
             currentTrack = nil
             elapsed = 0
             isPlaying = false
@@ -1423,9 +1366,9 @@ final class MacPlayerViewModel: ObservableObject {
 
     private func applyPlaybackState(_ state: RemotePlaybackState, stopsLocalAudio: Bool) {
         if stopsLocalAudio {
-            audioPlayer?.pause()
+            audioPlayer?.stop()
             audioPlayer = nil
-            removeItemObservers()
+            audioQueueUpdateTask?.cancel()
             stopTimer()
             resetSpectrum()
         }
@@ -1455,12 +1398,10 @@ final class MacPlayerViewModel: ObservableObject {
         let shouldPlay = isPlaying
         let targetElapsed = elapsed
 
-        guard startPlayback(for: currentTrack) else {
+        guard startPlayback(for: currentTrack, offset: targetElapsed, playing: shouldPlay) else {
             isPlaying = false
             return
         }
-
-        audioPlayer?.seek(to: CMTime(seconds: targetElapsed, preferredTimescale: 600))
         if shouldPlay {
             isPlaying = true
             startTimer()
@@ -1718,7 +1659,7 @@ final class MacPlayerViewModel: ObservableObject {
 
     private func updateCurrentTrackDurationIfNeeded() {
         guard let currentTrack, currentTrack.duration <= 0 else { return }
-        let duration = audioPlayer?.currentItem?.duration.seconds ?? 0
+        let duration = audioPlayer?.duration ?? 0
         guard duration.isFinite, duration > 0 else { return }
 
         updateDuration(duration, for: currentTrack.id)

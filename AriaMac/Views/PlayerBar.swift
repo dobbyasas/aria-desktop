@@ -70,6 +70,16 @@ struct PlayerBar: View {
                 InlinePlaybackError(message: playbackError)
             }
 
+            if let message = player.playbackPreparationMessage {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.mini)
+                    Text(message).font(.caption).foregroundStyle(Color.ariaTextSecondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 8)
+            }
+
             Divider()
                 .overlay(Color.ariaDivider)
 

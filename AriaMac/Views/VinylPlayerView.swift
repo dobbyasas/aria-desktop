@@ -98,7 +98,8 @@ struct FullscreenPlayerView: View {
             Text("NOW PLAYING")
                 .tracking(2.5)
             Spacer()
-            Text(player.currentTrack == nil ? "READY WHEN YOU ARE" : player.isPlaying ? "ON THE TURNTABLE" : "PAUSED")
+            Text(player.playbackPreparationMessage?.uppercased() ?? (player.currentTrack == nil ? "READY WHEN YOU ARE" : player.isPlaying ? "ON THE TURNTABLE" : "PAUSED"))
+                .lineLimit(1)
                 .tracking(1.5)
                 .foregroundStyle(.white.opacity(0.3))
         }

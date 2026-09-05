@@ -1,6 +1,5 @@
 import AVFoundation
 import Foundation
-import MediaToolbox
 
 final class AudioSpectrumAnalyzer {
     var onLevels: (([Float]) -> Void)?
@@ -15,73 +14,14 @@ final class AudioSpectrumAnalyzer {
         smoothedLevels = Array(repeating: 0.04, count: bandCount)
     }
 
-    func makeAudioMix(for track: AVAssetTrack) -> AVAudioMix? {
-        let retainedSelf = Unmanaged.passRetained(self)
-        var callbacks = MTAudioProcessingTapCallbacks(
-            version: kMTAudioProcessingTapCallbacksVersion_0,
-            clientInfo: retainedSelf.toOpaque(),
-            init: { _, clientInfo, tapStorageOut in
-                tapStorageOut.pointee = clientInfo
-            },
-            finalize: { tap in
-                let storage = MTAudioProcessingTapGetStorage(tap)
-                Unmanaged<AudioSpectrumAnalyzer>.fromOpaque(storage).release()
-            },
-            prepare: { tap, maxFrames, processingFormat in
-                let analyzer = AudioSpectrumAnalyzer.fromStorage(of: tap)
-                analyzer.prepare(maxFrames: Int(maxFrames), format: processingFormat.pointee)
-            },
-            unprepare: { tap in
-                AudioSpectrumAnalyzer.fromStorage(of: tap).unprepare()
-            },
-            process: { tap, requestedFrames, _, bufferList, framesOut, flagsOut in
-                var sourceFlags: MTAudioProcessingTapFlags = 0
-                var sourceFrames: CMItemCount = 0
-                let status = MTAudioProcessingTapGetSourceAudio(
-                    tap,
-                    requestedFrames,
-                    bufferList,
-                    &sourceFlags,
-                    nil,
-                    &sourceFrames
-                )
-
-                framesOut.pointee = sourceFrames
-                flagsOut.pointee = sourceFlags
-
-                guard status == noErr, sourceFrames > 0 else { return }
-                AudioSpectrumAnalyzer.fromStorage(of: tap).analyze(
-                    bufferList: bufferList,
-                    frameCount: Int(sourceFrames)
-                )
-            }
-        )
-
-        var tap: MTAudioProcessingTap?
-        let status = MTAudioProcessingTapCreate(
-            kCFAllocatorDefault,
-            &callbacks,
-            kMTAudioProcessingTapCreationFlag_PostEffects,
-            &tap
-        )
-
-        guard status == noErr, let tap else {
-            retainedSelf.release()
-            return nil
+    /// The engine tap continues across track boundaries, just like the output audio.
+    func analyze(_ buffer: AVAudioPCMBuffer) {
+        let description = buffer.format.streamDescription.pointee
+        if format.mSampleRate != description.mSampleRate || format.mChannelsPerFrame != description.mChannelsPerFrame
+            || windowedSamples.count < Int(buffer.frameLength) {
+            prepare(maxFrames: Int(buffer.frameLength), format: description)
         }
-
-        let parameters = AVMutableAudioMixInputParameters(track: track)
-        parameters.audioTapProcessor = tap
-
-        let audioMix = AVMutableAudioMix()
-        audioMix.inputParameters = [parameters]
-        return audioMix
-    }
-
-    private static func fromStorage(of tap: MTAudioProcessingTap) -> AudioSpectrumAnalyzer {
-        Unmanaged<AudioSpectrumAnalyzer>
-            .fromOpaque(MTAudioProcessingTapGetStorage(tap))
-            .takeUnretainedValue()
+        analyze(bufferList: buffer.mutableAudioBufferList, frameCount: Int(buffer.frameLength))
     }
 
     private func prepare(maxFrames: Int, format: AudioStreamBasicDescription) {

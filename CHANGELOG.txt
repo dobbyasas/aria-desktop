@@ -1,6 +1,17 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.20.0
+Created: 2026-09-05
+
+Added:
+- Added sample-accurate gapless album playback on Mac, preparing the remaining album before audio begins and scheduling tracks on one continuous output clock.
+- Added album preparation progress and ahead-of-time buffering for mixed queues.
+
+Fixed:
+- Removed per-track player recreation and decoder startup delays at album boundaries.
+- Preserved native sample rates and valid audio frames, including AAC and MP3 padding metadata, while keeping seek, repeat, queue edits, remote controls, and the visualizer connected to the new engine.
+
 Version 1.19.0
 Created: 2026-09-05
 
