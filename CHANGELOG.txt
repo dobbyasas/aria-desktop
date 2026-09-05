@@ -1,6 +1,13 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.18.0
+Created: 2026-09-05
+
+Added:
+- Aria devices now join one shared playback session automatically, keeping audio on a single host while other devices show and control its live track, queue, progress, volume, shuffle, and repeat state.
+- Added a playback-session menu for starting independent playback on this Mac or rejoining the shared session.
+
 Version 1.17.0
 Created: 2026-09-05
 

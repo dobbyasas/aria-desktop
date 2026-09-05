@@ -121,6 +121,11 @@ final class MacPlayerViewModel: ObservableObject {
     @Published private(set) var isCatalogLoading = false
     @Published private(set) var catalogErrorMessage: String?
     @Published private(set) var playbackErrorMessage: String?
+    @Published private(set) var playbackSessionRole: PlaybackSessionRole?
+    @Published private(set) var playbackHostName: String?
+    @Published private(set) var playbackDevices: [PlaybackDevice] = []
+    @Published private(set) var playbackSessionError: String?
+    @Published private(set) var isSharedPlaybackSession = true
     @Published private(set) var downloadJob: AriaDownloadJob?
     @Published private(set) var downloadQueue: [DownloadQueueItem] = []
     @Published private(set) var isDownloadStarting = false
@@ -142,7 +147,12 @@ final class MacPlayerViewModel: ObservableObject {
     @Published private(set) var metadataEditorSession: TrackMetadataEditorSession?
     @Published var volume: Double = 0.86 {
         didSet {
-            audioPlayer?.volume = Float(min(max(volume, 0), 1))
+            let boundedVolume = min(max(volume, 0), 1)
+            if isRemoteController, !isApplyingPlaybackSync {
+                scheduleRemoteVolumeCommand(boundedVolume)
+            } else {
+                audioPlayer?.volume = Float(boundedVolume)
+            }
         }
     }
 
@@ -154,11 +164,23 @@ final class MacPlayerViewModel: ObservableObject {
     private var spectrumSetupTask: Task<Void, Never>?
     private var audioSpectrumAnalyzer: AudioSpectrumAnalyzer?
     private var downloadPollTask: Task<Void, Never>?
+    private var playbackSyncTask: Task<Void, Never>?
+    private var volumeCommandTask: Task<Void, Never>?
     private var orderedQueue: [Track] = []
     private let youtubeMusicSearchClient = YouTubeMusicSearchClient()
+    private let playbackDeviceID = MacPlayerViewModel.stablePlaybackDeviceID()
+    private var playbackSessionID = MacPlayerViewModel.savedPlaybackSessionID()
+    private var lastPlaybackCommandID = 0
+    private var lastSentPlaybackQueueIDs: [String] = []
+    private var isApplyingPlaybackSync = false
+    private var isSyncingPlayback = false
+    private var shouldStartAudioWhenBecomingHost = false
 
     private static let spectrumBandCount = 36
     private static let playlistHistoryDefaultsKey = "aria.mac.playlistLastPlayedAt"
+    private static let playbackDeviceIDDefaultsKey = "aria.playback.deviceID"
+    private static let playbackSessionIDDefaultsKey = "aria.playback.sessionID"
+    private static let sharedPlaybackSessionID = "shared"
     private static let restingSpectrumLevels = Array(
         repeating: Float(0.04),
         count: spectrumBandCount
@@ -175,6 +197,8 @@ final class MacPlayerViewModel: ObservableObject {
         Task { [weak self] in
             await self?.refreshCatalog()
         }
+
+        startPlaybackSync()
     }
 
     deinit {
@@ -189,6 +213,22 @@ final class MacPlayerViewModel: ObservableObject {
         timer?.cancel()
         spectrumSetupTask?.cancel()
         downloadPollTask?.cancel()
+        playbackSyncTask?.cancel()
+        volumeCommandTask?.cancel()
+    }
+
+    var isRemoteController: Bool {
+        playbackSessionRole == .controller
+    }
+
+    var playbackSessionTitle: String {
+        if isRemoteController {
+            return "Controlling \(playbackHostName ?? "another device")"
+        }
+        if isSharedPlaybackSession {
+            return playbackDevices.count > 1 ? "Playing for \(playbackDevices.count) devices" : "Shared playback"
+        }
+        return "Separate playback"
     }
 
     var progress: Double {
@@ -240,6 +280,21 @@ final class MacPlayerViewModel: ObservableObject {
 
     func play(_ track: Track, from collection: [Track]? = nil) {
         playbackErrorMessage = nil
+
+        if shouldRoutePlaybackCommand {
+            let remoteQueue = collection?.isEmpty == false ? collection! : (queue.isEmpty ? [track] : queue)
+            queue = remoteQueue
+            orderedQueue = remoteQueue
+            currentTrack = track
+            elapsed = 0
+            isPlaying = true
+            sendPlaybackCommand(
+                action: "play",
+                track: track,
+                queue: remoteQueue
+            )
+            return
+        }
 
         if let collection, !collection.isEmpty {
             setPlaybackCollection(collection, ensuring: track)
@@ -325,6 +380,12 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     func playPause() {
+        if shouldRoutePlaybackCommand {
+            isPlaying.toggle()
+            sendPlaybackCommand(action: "playPause")
+            return
+        }
+
         guard let currentTrack else {
             if let firstTrack = catalog.first {
                 play(firstTrack, from: catalog)
@@ -350,6 +411,11 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     func next() {
+        if shouldRoutePlaybackCommand {
+            sendPlaybackCommand(action: "next")
+            return
+        }
+
         guard let currentTrack else { return }
 
         if repeatMode == .one {
@@ -371,6 +437,11 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     func previous() {
+        if shouldRoutePlaybackCommand {
+            sendPlaybackCommand(action: "previous")
+            return
+        }
+
         guard let currentTrack else { return }
 
         if elapsed > 3 {
@@ -398,10 +469,20 @@ final class MacPlayerViewModel: ObservableObject {
 
         let targetTime = min(max(progress, 0), 1) * duration
         elapsed = targetTime
+        if shouldRoutePlaybackCommand {
+            sendPlaybackCommand(action: "seek", position: targetTime)
+            return
+        }
         audioPlayer?.seek(to: CMTime(seconds: targetTime, preferredTimescale: 600))
     }
 
     func toggleShuffle() {
+        if shouldRoutePlaybackCommand {
+            isShuffleEnabled.toggle()
+            sendPlaybackCommand(action: "shuffle")
+            return
+        }
+
         if isShuffleEnabled {
             isShuffleEnabled = false
             restoreQueueOrder()
@@ -440,6 +521,16 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     func cycleRepeatMode() {
+        if shouldRoutePlaybackCommand {
+            advanceRepeatMode()
+            sendPlaybackCommand(action: "repeat")
+            return
+        }
+
+        advanceRepeatMode()
+    }
+
+    private func advanceRepeatMode() {
         switch repeatMode {
         case .off:
             repeatMode = .all
@@ -451,6 +542,10 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     func playNext(_ track: Track) {
+        if shouldRoutePlaybackCommand {
+            sendPlaybackCommand(action: "playNext", track: track)
+        }
+
         guard currentTrack?.id != track.id else { return }
         queue.removeAll { $0.id == track.id }
         orderedQueue.removeAll { $0.id == track.id }
@@ -475,6 +570,10 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     func removeFromQueue(_ track: Track) {
+        if shouldRoutePlaybackCommand {
+            sendPlaybackCommand(action: "removeFromQueue", track: track)
+        }
+
         guard currentTrack?.id != track.id else { return }
         queue.removeAll { $0.id == track.id }
         orderedQueue.removeAll { $0.id == track.id }
@@ -1241,6 +1340,293 @@ final class MacPlayerViewModel: ObservableObject {
             isPlaying = false
             stopTimer()
         }
+    }
+
+    func startSeparatePlaybackSession() {
+        switchPlaybackSession(to: UUID().uuidString.lowercased())
+    }
+
+    func joinSharedPlaybackSession() {
+        switchPlaybackSession(to: Self.sharedPlaybackSessionID)
+    }
+
+    private var shouldRoutePlaybackCommand: Bool {
+        !isApplyingPlaybackSync && playbackSessionRole != .host
+    }
+
+    private func startPlaybackSync() {
+        playbackSyncTask?.cancel()
+        playbackSyncTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.syncPlaybackSession()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    private func syncPlaybackSession() async {
+        guard !isSyncingPlayback else { return }
+        isSyncingPlayback = true
+        defer { isSyncingPlayback = false }
+
+        let queueIDs = queue.map(remotePlaybackID)
+        let includesQueue = playbackSessionRole != .controller && queueIDs != lastSentPlaybackQueueIDs
+        let request = PlaybackSyncRequest(
+            deviceID: playbackDeviceID,
+            deviceName: Host.current().localizedName ?? "Mac",
+            platform: "macOS",
+            sessionID: playbackSessionID,
+            lastCommandID: lastPlaybackCommandID,
+            state: playbackStateUpdate(queueIDs: includesQueue ? queueIDs : nil)
+        )
+
+        do {
+            let previousRole = playbackSessionRole
+            let response = try await serverClient.syncPlayback(request)
+            playbackSessionError = nil
+            playbackSessionRole = response.role
+            playbackHostName = response.hostName
+            playbackDevices = response.devices
+            isSharedPlaybackSession = response.isShared
+            if response.role == .host, includesQueue {
+                lastSentPlaybackQueueIDs = queueIDs
+            }
+
+            switch response.role {
+            case .controller:
+                shouldStartAudioWhenBecomingHost = true
+                applyPlaybackState(response.state, stopsLocalAudio: true)
+            case .host:
+                if previousRole == .controller || shouldStartAudioWhenBecomingHost {
+                    applyPlaybackState(response.state, stopsLocalAudio: true)
+                    startLocalAudioForCurrentState()
+                    shouldStartAudioWhenBecomingHost = false
+                }
+                applyPlaybackCommands(response.commands)
+            }
+        } catch {
+            playbackSessionError = error.localizedDescription
+        }
+    }
+
+    private func playbackStateUpdate(queueIDs: [String]?) -> PlaybackStateUpdate {
+        PlaybackStateUpdate(
+            trackID: currentTrack.map(remotePlaybackID),
+            queueTrackIDs: queueIDs,
+            elapsed: elapsed,
+            isPlaying: isPlaying,
+            isShuffleEnabled: isShuffleEnabled,
+            repeatMode: repeatMode.rawValue,
+            volume: volume
+        )
+    }
+
+    private func applyPlaybackState(_ state: RemotePlaybackState, stopsLocalAudio: Bool) {
+        if stopsLocalAudio {
+            audioPlayer?.pause()
+            audioPlayer = nil
+            removeItemObservers()
+            stopTimer()
+            resetSpectrum()
+        }
+
+        let tracksByID = Dictionary(uniqueKeysWithValues: catalog.map { (remotePlaybackID(for: $0), $0) })
+        let remoteQueue = state.queueTrackIDs.compactMap { tracksByID[$0.lowercased()] }
+        let remoteTrack = state.trackID.flatMap { tracksByID[$0.lowercased()] }
+            ?? remoteQueue.first
+
+        isApplyingPlaybackSync = true
+        queue = remoteQueue
+        orderedQueue = remoteQueue
+        currentTrack = remoteTrack
+        isPlaying = state.isPlaying
+        isShuffleEnabled = state.isShuffleEnabled
+        repeatMode = RepeatMode(rawValue: state.repeatMode) ?? .off
+        volume = state.volume
+
+        let age = state.updatedAt.map { max(Date().timeIntervalSince1970 - $0, 0) } ?? 0
+        let projectedElapsed = state.elapsed + (state.isPlaying ? min(age, 3) : 0)
+        elapsed = min(max(projectedElapsed, 0), remoteTrack?.duration ?? projectedElapsed)
+        isApplyingPlaybackSync = false
+    }
+
+    private func startLocalAudioForCurrentState() {
+        guard let currentTrack else { return }
+        let shouldPlay = isPlaying
+        let targetElapsed = elapsed
+
+        guard startPlayback(for: currentTrack) else {
+            isPlaying = false
+            return
+        }
+
+        audioPlayer?.seek(to: CMTime(seconds: targetElapsed, preferredTimescale: 600))
+        if shouldPlay {
+            isPlaying = true
+            startTimer()
+        } else {
+            isPlaying = false
+            audioPlayer?.pause()
+            stopTimer()
+        }
+    }
+
+    private func applyPlaybackCommands(_ commands: [RemotePlaybackCommand]) {
+        for command in commands.sorted(by: { $0.id < $1.id }) {
+            isApplyingPlaybackSync = true
+            applyPlaybackCommand(command)
+            isApplyingPlaybackSync = false
+            lastPlaybackCommandID = max(lastPlaybackCommandID, command.id)
+        }
+    }
+
+    private func applyPlaybackCommand(_ command: RemotePlaybackCommand) {
+        switch command.action {
+        case "play":
+            guard let track = track(forRemoteID: command.trackID) else { return }
+            let remoteQueue = tracks(forRemoteIDs: command.queueTrackIDs)
+            play(track, from: remoteQueue.isEmpty ? nil : remoteQueue)
+        case "playPause":
+            playPause()
+        case "next":
+            next()
+        case "previous":
+            previous()
+        case "seek":
+            guard let position = command.position, currentDuration > 0 else { return }
+            seek(toProgress: position / currentDuration)
+        case "shuffle":
+            toggleShuffle()
+        case "repeat":
+            cycleRepeatMode()
+        case "setVolume":
+            if let value = command.value {
+                volume = min(max(value, 0), 1)
+            }
+        case "playNext":
+            if let track = track(forRemoteID: command.trackID) {
+                playNext(track)
+            }
+        case "addToQueue":
+            if let track = track(forRemoteID: command.trackID) {
+                queue.removeAll { $0.id == track.id }
+                orderedQueue.removeAll { $0.id == track.id }
+                queue.append(track)
+                orderedQueue.append(track)
+            }
+        case "removeFromQueue":
+            if let track = track(forRemoteID: command.trackID) {
+                removeFromQueue(track)
+            }
+        case "moveQueueItem":
+            moveQueueItem(
+                trackID: command.trackID,
+                beforeTrackID: command.targetTrackID
+            )
+        default:
+            break
+        }
+    }
+
+    private func sendPlaybackCommand(
+        action: String,
+        track: Track? = nil,
+        queue: [Track]? = nil,
+        targetTrack: Track? = nil,
+        position: TimeInterval? = nil,
+        value: Double? = nil
+    ) {
+        let command = PlaybackCommandRequest(
+            deviceID: playbackDeviceID,
+            action: action,
+            trackID: track.map(remotePlaybackID),
+            targetTrackID: targetTrack.map(remotePlaybackID),
+            queueTrackIDs: queue?.map(remotePlaybackID),
+            position: position,
+            value: value
+        )
+        let sessionID = playbackSessionID
+
+        Task { [weak self, serverClient] in
+            do {
+                try await serverClient.sendPlaybackCommand(command, sessionID: sessionID)
+                await self?.syncPlaybackSession()
+            } catch {
+                self?.playbackSessionError = error.localizedDescription
+            }
+        }
+    }
+
+    private func scheduleRemoteVolumeCommand(_ value: Double) {
+        volumeCommandTask?.cancel()
+        volumeCommandTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(160))
+            guard !Task.isCancelled else { return }
+            self?.sendPlaybackCommand(action: "setVolume", value: value)
+        }
+    }
+
+    private func switchPlaybackSession(to sessionID: String) {
+        shouldStartAudioWhenBecomingHost = isRemoteController
+        playbackSessionID = sessionID
+        lastPlaybackCommandID = 0
+        lastSentPlaybackQueueIDs = []
+        playbackSessionRole = nil
+        playbackHostName = nil
+        playbackDevices = []
+        playbackSessionError = nil
+        isSharedPlaybackSession = sessionID == Self.sharedPlaybackSessionID
+        UserDefaults.standard.set(sessionID, forKey: Self.playbackSessionIDDefaultsKey)
+        Task { [weak self] in
+            await self?.syncPlaybackSession()
+        }
+    }
+
+    private func moveQueueItem(trackID: String?, beforeTrackID: String?) {
+        guard
+            let movedTrack = track(forRemoteID: trackID),
+            let targetTrack = track(forRemoteID: beforeTrackID),
+            let sourceIndex = queue.firstIndex(where: { $0.id == movedTrack.id }),
+            let targetIndex = queue.firstIndex(where: { $0.id == targetTrack.id })
+        else { return }
+
+        let moved = queue.remove(at: sourceIndex)
+        let adjustedTarget = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+        queue.insert(moved, at: adjustedTarget)
+        orderedQueue = queue
+    }
+
+    private func tracks(forRemoteIDs ids: [String]?) -> [Track] {
+        guard let ids else { return [] }
+        let tracksByID = Dictionary(uniqueKeysWithValues: catalog.map { (remotePlaybackID(for: $0), $0) })
+        return ids.compactMap { tracksByID[$0.lowercased()] }
+    }
+
+    private func track(forRemoteID id: String?) -> Track? {
+        guard let id else { return nil }
+        return catalog.first { remotePlaybackID(for: $0) == id.lowercased() }
+    }
+
+    private func remotePlaybackID(for track: Track) -> String {
+        (track.serverID ?? track.id.uuidString).lowercased()
+    }
+
+    private static func stablePlaybackDeviceID() -> String {
+        if let saved = UserDefaults.standard.string(forKey: playbackDeviceIDDefaultsKey), !saved.isEmpty {
+            return saved
+        }
+        let id = UUID().uuidString.lowercased()
+        UserDefaults.standard.set(id, forKey: playbackDeviceIDDefaultsKey)
+        return id
+    }
+
+    private static func savedPlaybackSessionID() -> String {
+        guard let saved = UserDefaults.standard.string(forKey: playbackSessionIDDefaultsKey) else {
+            return sharedPlaybackSessionID
+        }
+        return saved == sharedPlaybackSessionID || UUID(uuidString: saved) != nil
+            ? saved
+            : sharedPlaybackSessionID
     }
 
     private func refreshedOrder(from existing: [Track], using catalog: [Track], preserving current: Track?) -> [Track] {

@@ -4,7 +4,7 @@ import SwiftUI
 enum AriaRelease {
     static let version = Bundle.main.object(
         forInfoDictionaryKey: "CFBundleShortVersionString"
-    ) as? String ?? "1.15.0"
+    ) as? String ?? "1.18.0"
 
     static var displayText: String {
         "Version \(version)"
@@ -51,6 +51,18 @@ struct AriaMacApp: App {
                     player.cycleRepeatMode()
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+
+                Divider()
+
+                if player.isSharedPlaybackSession {
+                    Button("Listen Separately on This Mac") {
+                        player.startSeparatePlaybackSession()
+                    }
+                } else {
+                    Button("Join Shared Playback Session") {
+                        player.joinSharedPlaybackSession()
+                    }
+                }
             }
 
             CommandMenu("Library") {

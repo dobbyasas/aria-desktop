@@ -422,6 +422,8 @@ private struct FullscreenPlayerControls: View {
 
     private var utilityControls: some View {
         HStack(spacing: 10) {
+            MacPlaybackSessionMenu()
+
             playerButton(
                 systemImage: "quote.bubble",
                 isActive: showsLyrics,
@@ -490,6 +492,67 @@ private struct FullscreenPlayerControls: View {
     }
 }
 
+private struct MacPlaybackSessionMenu: View {
+    @EnvironmentObject private var player: MacPlayerViewModel
+
+    var body: some View {
+        Menu {
+            Section("Playback session") {
+                Label(player.playbackSessionTitle, systemImage: sessionSymbol)
+                if let error = player.playbackSessionError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                }
+            }
+
+            if !player.playbackDevices.isEmpty {
+                Section("Connected devices") {
+                    ForEach(player.playbackDevices) { device in
+                        Label(
+                            device.isHost ? "\(device.name) · playing" : device.name,
+                            systemImage: device.isHost ? "speaker.wave.2.fill" : deviceSymbol(for: device)
+                        )
+                    }
+                }
+            }
+
+            Divider()
+
+            if player.isSharedPlaybackSession {
+                Button("Listen Separately on This Mac", systemImage: "speaker.wave.2.circle") {
+                    player.startSeparatePlaybackSession()
+                }
+            } else {
+                Button("Join Shared Session", systemImage: "rectangle.connected.to.line.below") {
+                    player.joinSharedPlaybackSession()
+                }
+            }
+        } label: {
+            Image(systemName: sessionSymbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(player.playbackSessionError == nil ? Color.ariaTextSecondary : Color.orange)
+                .frame(width: 28, height: 28)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help(player.playbackSessionTitle)
+        .accessibilityLabel(player.playbackSessionTitle)
+    }
+
+    private var sessionSymbol: String {
+        if player.playbackSessionRole == nil {
+            return "antenna.radiowaves.left.and.right"
+        }
+        if player.isRemoteController {
+            return "iphone.and.arrow.forward"
+        }
+        return player.isSharedPlaybackSession ? "speaker.wave.2.fill" : "headphones"
+    }
+
+    private func deviceSymbol(for device: PlaybackDevice) -> String {
+        device.platform == "macOS" ? "desktopcomputer" : "iphone"
+    }
+}
+
 struct PlayerBar: View {
     @EnvironmentObject private var player: MacPlayerViewModel
 
@@ -527,6 +590,8 @@ struct PlayerBar: View {
 
             Spacer(minLength: 8)
 
+            MacPlaybackSessionMenu()
+
             volumeControl
                 .frame(width: 120)
         }
@@ -537,6 +602,8 @@ struct PlayerBar: View {
             HStack(spacing: 12) {
                 currentTrackSummary
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                MacPlaybackSessionMenu()
 
                 volumeControl
                     .frame(width: 118)

@@ -20,6 +20,7 @@ This first Mac version includes:
 - queued server-side album downloads with progress and ETA from the sidebar
 - in-app YouTube Music album search with artwork, metadata, and one-click queueing
 - AVPlayer playback
+- automatic shared playback with remote control from another Aria device, plus an explicit separate-listening mode
 - live low-to-high audio spectrum driven by decoded playback samples
 - shuffle that mutates the queue
 - repeat modes
