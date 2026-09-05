@@ -26,3 +26,15 @@ This first Mac version includes:
 - repeat modes
 - cached artwork
 - the Aria app icon
+
+The Mac player uses a spinning artwork-label vinyl, a scrollable queue that follows
+its edge, and transport controls below the queue. Lyrics sit under the record and
+can expand into a reading view. The vinyl pauses with playback and respects Reduce
+Motion. The library and its compact player keep their existing layout.
+
+Run the player geometry checks without starting playback:
+
+```sh
+xcrun swiftc AriaMac/Support/VinylPlayerGeometry.swift Tests/VinylPlayerGeometryTests.swift -o /tmp/aria-vinyl-tests
+/tmp/aria-vinyl-tests
+```

@@ -1,6 +1,16 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.19.0
+Created: 2026-09-05
+
+Added:
+- Added a vinyl Mac player with a spinning artwork label, a queue that curves around the record, and playback controls beneath the queue.
+- Added a compact lyrics sleeve under the vinyl with an expanded reading view.
+
+Changed:
+- The record preserves its angle when paused and respects Reduce Motion; queue and lyric scrolling follow the current track and line.
+
 Version 1.18.0
 Created: 2026-09-05
 

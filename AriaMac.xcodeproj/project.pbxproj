@@ -21,6 +21,8 @@
 		5B0001122D00000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5B0002122D00000000000001 /* Assets.xcassets */; };
 		5B0001132D00000000000001 /* AudioSpectrumAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002142D00000000000001 /* AudioSpectrumAnalyzer.swift */; };
 		5B0001142D00000000000001 /* YouTubeMusicSearchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002152D00000000000001 /* YouTubeMusicSearchClient.swift */; };
+		5B0001152D00000000000001 /* VinylPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002162D00000000000001 /* VinylPlayerView.swift */; };
+		5B0001162D00000000000001 /* VinylPlayerGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002172D00000000000001 /* VinylPlayerGeometry.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +42,8 @@
 		5B0002132D00000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		5B0002142D00000000000001 /* AudioSpectrumAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSpectrumAnalyzer.swift; sourceTree = "<group>"; };
 		5B0002152D00000000000001 /* YouTubeMusicSearchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeMusicSearchClient.swift; sourceTree = "<group>"; };
+		5B0002162D00000000000001 /* VinylPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VinylPlayerView.swift; sourceTree = "<group>"; };
+		5B0002172D00000000000001 /* VinylPlayerGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VinylPlayerGeometry.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -126,6 +130,7 @@
 				5B0002072D00000000000001 /* ContentView.swift */,
 				5B0002082D00000000000001 /* ArtworkView.swift */,
 				5B0002092D00000000000001 /* PlayerBar.swift */,
+				5B0002162D00000000000001 /* VinylPlayerView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -135,6 +140,7 @@
 			children = (
 				5B0002102D00000000000001 /* TimeFormatting.swift */,
 				5B0002112D00000000000001 /* Color+Aria.swift */,
+				5B0002172D00000000000001 /* VinylPlayerGeometry.swift */,
 			);
 			path = Support;
 			sourceTree = "<group>";
@@ -217,8 +223,10 @@
 				5B0001072D00000000000001 /* ContentView.swift in Sources */,
 				5B0001082D00000000000001 /* ArtworkView.swift in Sources */,
 				5B0001092D00000000000001 /* PlayerBar.swift in Sources */,
+				5B0001152D00000000000001 /* VinylPlayerView.swift in Sources */,
 				5B0001102D00000000000001 /* TimeFormatting.swift in Sources */,
 				5B0001112D00000000000001 /* Color+Aria.swift in Sources */,
+				5B0001162D00000000000001 /* VinylPlayerGeometry.swift in Sources */,
 				5B0001132D00000000000001 /* AudioSpectrumAnalyzer.swift in Sources */,
 				5B0001142D00000000000001 /* YouTubeMusicSearchClient.swift in Sources */,
 			);
@@ -356,7 +364,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.18.0;
+				MARKETING_VERSION = 1.19.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tofi.aria.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -381,7 +389,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.18.0;
+				MARKETING_VERSION = 1.19.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tofi.aria.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
