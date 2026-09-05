@@ -143,7 +143,7 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 ZStack {
                     VStack(spacing: 0) {
-                        if selectedArtistName == nil {
+                        if selectedArtistName == nil && selectedAlbum == nil {
                             header
                         }
 
@@ -1012,12 +1012,14 @@ struct ArtistPageView: View {
 }
 
 struct AlbumsView: View {
+    @State private var sortMode: MacAlbumSortMode = .title
+
     let albums: [AriaAlbum]
     let isSearching: Bool
     let onOpenAlbum: (AriaAlbum) -> Void
 
     private let columns = [
-        GridItem(.adaptive(minimum: 174, maximum: 220), spacing: 16)
+        GridItem(.adaptive(minimum: 198, maximum: 246), spacing: 18, alignment: .top)
     ]
 
     var body: some View {
@@ -1030,14 +1032,70 @@ struct AlbumsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                    ForEach(albums) { album in
-                        AlbumCard(album: album, onOpen: onOpenAlbum)
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(spacing: 10) {
+                        Text("Sort by")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Color.ariaTextSecondary)
+
+                        Spacer()
+
+                        Picker("Sort albums", selection: $sortMode) {
+                            ForEach(MacAlbumSortMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 250)
+                    }
+
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
+                        ForEach(sortedAlbums) { album in
+                            AlbumCard(album: album, onOpen: onOpenAlbum)
+                        }
                     }
                 }
                 .padding(.horizontal, 24)
+                .padding(.top, 4)
                 .padding(.bottom, 24)
             }
+        }
+    }
+
+    private var sortedAlbums: [AriaAlbum] {
+        albums.sorted { first, second in
+            switch sortMode {
+            case .title:
+                first.title.localizedCaseInsensitiveCompare(second.title) == .orderedAscending
+            case .artist:
+                if first.artist.caseInsensitiveCompare(second.artist) == .orderedSame {
+                    first.title.localizedCaseInsensitiveCompare(second.title) == .orderedAscending
+                } else {
+                    first.artist.localizedCaseInsensitiveCompare(second.artist) == .orderedAscending
+                }
+            case .newest:
+                if first.year == second.year {
+                    first.title.localizedCaseInsensitiveCompare(second.title) == .orderedAscending
+                } else {
+                    first.year > second.year
+                }
+            }
+        }
+    }
+}
+
+private enum MacAlbumSortMode: String, CaseIterable, Identifiable {
+    case title
+    case artist
+    case newest
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .title: "Title"
+        case .artist: "Artist"
+        case .newest: "Year"
         }
     }
 }
@@ -1053,18 +1111,34 @@ struct MacAlbumDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 22) {
                 Button {
                     onBack()
                 } label: {
                     Label("Albums", systemImage: "chevron.left")
+                        .font(.subheadline.weight(.medium))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.ariaTextSecondary)
+                .keyboardShortcut(.cancelAction)
 
                 albumHeader
 
                 VStack(spacing: 0) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Tracks")
+                            .font(.title2.weight(.semibold))
+                            .foregroundStyle(Color.ariaTextPrimary)
+
+                        Spacer()
+
+                        Text("\(album.tracks.count) \(album.tracks.count == 1 ? "song" : "songs") • \(album.duration.ariaDurationText)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(Color.ariaTextSecondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+
                     TrackListHeader(showAlbum: false)
 
                     LazyVStack(spacing: 2) {
@@ -1078,8 +1152,16 @@ struct MacAlbumDetailView: View {
                         }
                     }
                 }
+                .padding(12)
+                .background(Color.ariaSurface.opacity(0.72))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.ariaDivider, lineWidth: 1)
+                )
             }
             .padding(.horizontal, 24)
+            .padding(.top, 18)
             .padding(.bottom, 24)
         }
         .alert("Delete \(album.title)?", isPresented: $confirmsAlbumDeletion) {
@@ -1104,79 +1186,135 @@ struct MacAlbumDetailView: View {
     }
 
     private var albumHeader: some View {
-        HStack(spacing: 20) {
-            if let artworkTrack = album.artworkTrack {
-                ArtworkView(track: artworkTrack, size: 148, cornerRadius: 10)
-                    .shadow(color: .black.opacity(0.24), radius: 16, x: 0, y: 10)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 46) {
+                albumObject(size: 238)
+                albumIdentity(isCentered: false)
+                Spacer(minLength: 0)
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Album")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.ariaAccent)
-                    .textCase(.uppercase)
-
-                Text(album.title)
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(Color.ariaTextPrimary)
-                    .lineLimit(2)
-
-                HStack(spacing: 0) {
-                    ArtistNameLink(name: album.artist)
-                    Text(" - \(albumSubtitle)")
-                }
-                    .font(.subheadline)
-                    .foregroundStyle(Color.ariaTextSecondary)
-
-                HStack(spacing: 10) {
-                    Button {
-                        playAlbum()
-                    } label: {
-                        Label("Play Album", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.ariaAccent)
-
-                    Button {
-                        shuffleAlbum()
-                    } label: {
-                        Label("Shuffle", systemImage: "shuffle")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(album.tracks.isEmpty)
-
-                    Button(role: .destructive) {
-                        confirmsAlbumDeletion = true
-                    } label: {
-                        if isDeletingAlbum {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Label("Delete Album", systemImage: "trash")
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isDeletingAlbum)
-                }
+            VStack(spacing: 26) {
+                albumObject(size: 204)
+                albumIdentity(isCentered: true)
             }
-
-            Spacer()
         }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.ariaSurface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.ariaDivider, lineWidth: 1)
-                )
+        .padding(32)
+        .frame(maxWidth: .infinity, minHeight: 286, alignment: .leading)
+        .background(albumHeroBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
     }
 
+    @ViewBuilder
+    private func albumObject(size: CGFloat) -> some View {
+        if let artworkTrack = album.artworkTrack {
+            ZStack {
+                MacAlbumVinylRecord(track: artworkTrack, size: size * 0.86)
+                    .offset(x: size * 0.22)
+
+                ArtworkView(track: artworkTrack, size: size, cornerRadius: 14)
+                    .offset(x: -size * 0.08)
+                    .shadow(color: .black.opacity(0.4), radius: 24, x: 0, y: 16)
+            }
+            .frame(width: size * 1.2, height: size)
+        }
+    }
+
+    private func albumIdentity(isCentered: Bool) -> some View {
+        VStack(alignment: isCentered ? .center : .leading, spacing: 12) {
+            Text(album.title)
+                .font(.system(size: 38, weight: .semibold))
+                .foregroundStyle(Color.ariaTextPrimary)
+                .multilineTextAlignment(isCentered ? .center : .leading)
+                .lineLimit(3)
+                .minimumScaleFactor(0.78)
+
+            ArtistNameLink(name: album.artist)
+                .font(.title3)
+                .foregroundStyle(Color.ariaTextSecondary)
+
+            Text(albumSubtitle)
+                .font(.subheadline)
+                .foregroundStyle(Color.ariaTextSecondary)
+
+            albumActions
+                .padding(.top, 10)
+        }
+        .frame(maxWidth: 540, alignment: isCentered ? .center : .leading)
+    }
+
+    private var albumActions: some View {
+        HStack(spacing: 10) {
+            Button(action: playAlbum) {
+                Label("Play Album", systemImage: "play.fill")
+                    .font(.headline)
+                    .foregroundStyle(Color.black.opacity(0.86))
+                    .padding(.horizontal, 20)
+                    .frame(height: 48)
+                    .background(Color.ariaAccent, in: RoundedRectangle(cornerRadius: 13))
+            }
+            .buttonStyle(.plain)
+            .disabled(album.tracks.isEmpty)
+
+            Button(action: shuffleAlbum) {
+                Label("Shuffle", systemImage: "shuffle")
+                    .font(.headline)
+                    .foregroundStyle(Color.ariaTextPrimary)
+                    .padding(.horizontal, 16)
+                    .frame(height: 48)
+                    .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 13))
+            }
+            .buttonStyle(.plain)
+            .disabled(album.tracks.isEmpty)
+
+            Button(role: .destructive) {
+                confirmsAlbumDeletion = true
+            } label: {
+                if isDeletingAlbum {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "trash")
+                        .font(.headline)
+                        .foregroundStyle(Color.ariaTextSecondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .frame(width: 48, height: 48)
+            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 13))
+            .disabled(isDeletingAlbum)
+            .help("Delete album")
+        }
+    }
+
+    private var albumHeroBackground: some View {
+        let artwork = album.artworkTrack?.artwork
+        return ZStack {
+            LinearGradient(
+                colors: [
+                    artwork.map { Color(hex: $0.topHex).opacity(0.34) } ?? Color.ariaPanelRaised,
+                    Color.ariaSurface.opacity(0.98),
+                    artwork.map { Color(hex: $0.bottomHex).opacity(0.17) } ?? Color.ariaSurface
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            LinearGradient(
+                colors: [Color.white.opacity(0.04), .clear, Color.black.opacity(0.18)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+
     private var albumSubtitle: String {
-        let yearText = album.year > 0 ? "\(album.year) - " : ""
+        let yearText = album.year > 0 ? "\(album.year) • " : ""
         let countText = album.tracks.count == 1 ? "1 song" : "\(album.tracks.count) songs"
-        return "\(yearText)\(countText) - \(album.duration.ariaDurationText)"
+        return "\(yearText)\(countText) • \(album.duration.ariaDurationText)"
     }
 
     private func playAlbum() {
@@ -1750,25 +1888,26 @@ struct TrackRow: View {
 
 struct AlbumCard: View {
     @EnvironmentObject private var player: MacPlayerViewModel
+    @State private var isHovering = false
 
     let album: AriaAlbum
     let onOpen: (AriaAlbum) -> Void
+
+    private let artworkSize: CGFloat = 168
 
     var body: some View {
         Button {
             onOpen(album)
         } label: {
-            VStack(alignment: .leading, spacing: 11) {
-                if let artworkTrack = album.artworkTrack {
-                    ArtworkView(track: artworkTrack, size: 158, cornerRadius: 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            VStack(alignment: .leading, spacing: 12) {
+                albumObject
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 5) {
                     Text(album.title)
                         .font(.headline)
                         .foregroundStyle(Color.ariaTextPrimary)
                         .lineLimit(2)
+                        .frame(minHeight: 38, alignment: .topLeading)
 
                     ArtistNameLink(name: album.artist)
                         .font(.subheadline)
@@ -1777,35 +1916,128 @@ struct AlbumCard: View {
 
                     Text(albumSubtitle)
                         .font(.caption)
-                        .foregroundStyle(Color.ariaTextSecondary)
+                        .foregroundStyle(Color.ariaTextSecondary.opacity(0.8))
                         .lineLimit(1)
                 }
             }
+            .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.ariaSurface)
-            )
+            .background(Color.white.opacity(isHovering ? 0.06 : 0.025))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.ariaDivider, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(isHovering ? 0.12 : 0.05), lineWidth: 1)
             )
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .scaleEffect(isHovering ? 1.012 : 1)
+            .accessibilityLabel(accessibilityDescription)
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.18), value: isHovering)
+        .help("Open \(album.title)")
         .contextMenu {
             Button("Play Album") {
                 if let firstTrack = album.tracks.first {
                     player.play(firstTrack, from: album.tracks)
                 }
             }
+
+            Button("Shuffle Album") {
+                let tracks = album.tracks.shuffled()
+                if let firstTrack = tracks.first {
+                    player.play(firstTrack, from: tracks)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var albumObject: some View {
+        if let artworkTrack = album.artworkTrack {
+            ZStack(alignment: .topTrailing) {
+                ZStack {
+                    MacAlbumVinylRecord(track: artworkTrack, size: artworkSize * 0.9)
+                        .offset(x: isHovering ? artworkSize * 0.24 : artworkSize * 0.18)
+
+                    ArtworkView(track: artworkTrack, size: artworkSize, cornerRadius: 12)
+                        .offset(x: -artworkSize * 0.06, y: isHovering ? -3 : 0)
+                        .shadow(
+                            color: Color.black.opacity(isHovering ? 0.46 : 0.34),
+                            radius: isHovering ? 18 : 13,
+                            x: 0,
+                            y: isHovering ? 12 : 9
+                        )
+                }
+                .frame(maxWidth: .infinity)
+
+                Image(systemName: "arrow.up.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color.ariaTextPrimary)
+                    .frame(width: 30, height: 30)
+                    .background(Color.black.opacity(0.5), in: Circle())
+                    .opacity(isHovering ? 1 : 0)
+                    .padding(8)
+            }
+            .frame(height: artworkSize + 4)
         }
     }
 
     private var albumSubtitle: String {
-        let yearText = album.year > 0 ? "\(album.year) - " : ""
         let countText = album.tracks.count == 1 ? "1 song" : "\(album.tracks.count) songs"
-        return "\(yearText)\(countText) - \(album.duration.ariaDurationText)"
+        let yearText = album.year > 0 ? "\(album.year) • " : ""
+        return "\(yearText)\(countText)"
+    }
+
+    private var accessibilityDescription: String {
+        return "\(album.title) by \(album.artist), \(albumSubtitle)"
+    }
+}
+
+private struct MacAlbumVinylRecord: View {
+    let track: Track
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.black,
+                            Color(red: 0.13, green: 0.14, blue: 0.15),
+                            Color.black,
+                            Color(red: 0.07, green: 0.08, blue: 0.09)
+                        ],
+                        center: .center,
+                        startRadius: size * 0.08,
+                        endRadius: size * 0.5
+                    )
+                )
+
+            ForEach([0.62, 0.76, 0.9], id: \.self) { scale in
+                Circle()
+                    .stroke(Color.white.opacity(0.06), lineWidth: 0.7)
+                    .frame(width: size * scale, height: size * scale)
+            }
+
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: track.artwork.topHex), Color(hex: track.artwork.bottomHex)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: size * 0.28, height: size * 0.28)
+
+            Circle()
+                .fill(Color.black)
+                .frame(width: size * 0.055, height: size * 0.055)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: Color.black.opacity(0.42), radius: 12, x: 0, y: 8)
+        .accessibilityHidden(true)
     }
 }
 
