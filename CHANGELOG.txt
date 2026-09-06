@@ -1,6 +1,13 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.22.0
+Created: 2026-09-06
+
+Added:
+- Library pages now remember their place like tabs: returning to Albums keeps the open album and its track scroll position, and Back restores the grid position and sort order.
+- Songs and Albums keep independent searches, and visited Songs and playlist pages retain their scroll positions.
+
 Version 1.21.0
 Created: 2026-09-06
 
