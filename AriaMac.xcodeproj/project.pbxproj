@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5B0001192D00000000000001 /* QueueReordering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002202D00000000000001 /* QueueReordering.swift */; };
 		5B0001012D00000000000001 /* AriaMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002012D00000000000001 /* AriaMacApp.swift */; };
 		5B0001022D00000000000001 /* Track.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002022D00000000000001 /* Track.swift */; };
 		5B0001032D00000000000001 /* Playlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002032D00000000000001 /* Playlist.swift */; };
@@ -28,6 +29,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		5B0002202D00000000000001 /* QueueReordering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueReordering.swift; sourceTree = "<group>"; };
 		5B0000012D00000000000001 /* AriaMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AriaMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5B0002012D00000000000001 /* AriaMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AriaMacApp.swift; sourceTree = "<group>"; };
 		5B0002022D00000000000001 /* Track.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Track.swift; sourceTree = "<group>"; };
@@ -133,6 +135,7 @@
 		5B0004082D00000000000001 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				5B0002202D00000000000001 /* QueueReordering.swift */,
 				5B0002072D00000000000001 /* ContentView.swift */,
 				5B0002082D00000000000001 /* ArtworkView.swift */,
 				5B0002092D00000000000001 /* PlayerBar.swift */,
@@ -220,6 +223,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5B0001192D00000000000001 /* QueueReordering.swift in Sources */,
 				5B0001012D00000000000001 /* AriaMacApp.swift in Sources */,
 				5B0001022D00000000000001 /* Track.swift in Sources */,
 				5B0001032D00000000000001 /* Playlist.swift in Sources */,
@@ -372,7 +376,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.20.0;
+				MARKETING_VERSION = 1.21.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tofi.aria.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -397,7 +401,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.20.0;
+				MARKETING_VERSION = 1.21.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tofi.aria.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;

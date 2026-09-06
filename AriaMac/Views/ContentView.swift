@@ -1499,7 +1499,7 @@ struct QueueView: View {
                             if player.upNext.isEmpty {
                                 EmptyStateView(
                                     title: "Nothing up next",
-                                    message: "Add songs with Play Next or start another album.",
+                                    message: "Add songs with Play Next or Add to Queue, or start another album.",
                                     systemImage: "list.bullet.rectangle"
                                 )
                                 .frame(maxWidth: .infinity, minHeight: 220)
@@ -1513,6 +1513,7 @@ struct QueueView: View {
                                             showAlbum: showsAlbum,
                                             canRemoveFromQueue: true
                                         )
+                                        .queueReorderable(trackID: track.id, enabled: player.canMoveQueuedTrack(track.id))
                                     }
                                 }
                             }
@@ -1787,6 +1788,11 @@ struct TrackRow: View {
                 .frame(width: 58, alignment: .trailing)
 
             if canRemoveFromQueue {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(Color.ariaTextSecondary.opacity(0.55))
+                    .help("Drag to reorder")
+                    .accessibilityHidden(true)
+
                 Button {
                     player.removeFromQueue(track)
                 } label: {
@@ -1800,6 +1806,10 @@ struct TrackRow: View {
                 Menu {
                     Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
                         player.playNext(track)
+                    }
+
+                    Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
+                        player.addToQueue(track)
                     }
 
                     Menu("Add to Playlist") {
@@ -1849,6 +1859,10 @@ struct TrackRow: View {
 
             Button("Play Next") {
                 player.playNext(track)
+            }
+
+            Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
+                player.addToQueue(track)
             }
 
             Menu("Add to Playlist") {

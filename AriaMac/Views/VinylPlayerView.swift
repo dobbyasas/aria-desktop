@@ -254,7 +254,7 @@ private struct VinylQueueView: View {
     @EnvironmentObject private var player: MacPlayerViewModel
     let recordDiameter: CGFloat
     @Namespace private var scrollSpace
-    @State private var scrollTarget: Int?
+    @State private var scrollTarget: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -284,15 +284,16 @@ private struct VinylQueueView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        ForEach(Array(player.queue.enumerated()), id: \.offset) { index, track in
+                        ForEach(Array(player.queue.enumerated()), id: \.element.id) { index, track in
                             GeometryReader { rowGeometry in
                                 let midY = rowGeometry.frame(in: .named(scrollSpace)).midY + 36
                                 let inset = VinylQueueArc.leadingInset(rowMidY: midY, diameter: recordDiameter)
                                 VinylQueueRow(track: track, index: index)
+                                    .queueReorderable(trackID: track.id, enabled: player.canMoveQueuedTrack(track.id))
                                     .padding(.leading, inset)
                             }
                             .frame(height: 52)
-                            .id(index)
+                            .id(track.id)
                         }
                     }
                     .scrollTargetLayout()
@@ -304,15 +305,12 @@ private struct VinylQueueView: View {
                 .onChange(of: player.currentTrack?.id, initial: true) { _, _ in
                     focusCurrentTrack()
                 }
-                .onChange(of: player.queue.map(\.id)) { _, _ in
-                    focusCurrentTrack()
-                }
             }
         }
     }
 
     private func focusCurrentTrack() {
-        scrollTarget = player.queue.firstIndex(where: { $0.id == player.currentTrack?.id })
+        scrollTarget = player.currentTrack?.id
     }
 }
 
@@ -356,6 +354,14 @@ private struct VinylQueueRow: View {
                 Text(track.duration.ariaDurationText)
                     .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.white.opacity(0.3))
+
+                if player.canMoveQueuedTrack(track.id) {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(isHovering ? 0.55 : 0.22))
+                        .help("Drag to reorder")
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, 9)
             .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)

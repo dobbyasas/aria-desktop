@@ -1,6 +1,17 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.21.0
+Created: 2026-09-06
+
+Added:
+- Added drag and drop for upcoming songs in both Mac queue views while preserving the current song and playback position.
+- Added Add to Queue beside Play Next in song menus and context menus.
+
+Fixed:
+- Kept manual additions ahead of the remaining playlist: Play Next A, Play Next B, and Add to Queue C now play B, A, C, then the playlist, including after earlier queue reordering.
+- Aligned remote queue moves with iPhone ordering and kept queue scrolling stable when songs are reordered.
+
 Version 1.20.0
 Created: 2026-09-05
 

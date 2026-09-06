@@ -170,6 +170,7 @@ final class MacPlayerViewModel: ObservableObject {
     private var playbackSyncTask: Task<Void, Never>?
     private var volumeCommandTask: Task<Void, Never>?
     private var orderedQueue: [Track] = []
+    private var manuallyQueuedTrackIDs: [UUID] = []
     private let youtubeMusicSearchClient = YouTubeMusicSearchClient()
     private let playbackDeviceID = MacPlayerViewModel.stablePlaybackDeviceID()
     private var playbackSessionID = MacPlayerViewModel.savedPlaybackSessionID()
@@ -280,6 +281,7 @@ final class MacPlayerViewModel: ObservableObject {
             let remoteQueue = collection?.isEmpty == false ? collection! : (queue.isEmpty ? [track] : queue)
             queue = remoteQueue
             orderedQueue = remoteQueue
+            manuallyQueuedTrackIDs.removeAll()
             currentTrack = track
             elapsed = 0
             isPlaying = true
@@ -534,6 +536,8 @@ final class MacPlayerViewModel: ObservableObject {
         guard currentTrack?.id != track.id else { return }
         queue.removeAll { $0.id == track.id }
         orderedQueue.removeAll { $0.id == track.id }
+        manuallyQueuedTrackIDs.removeAll { $0 == track.id }
+        manuallyQueuedTrackIDs.insert(track.id, at: 0)
 
         guard let currentTrack, let currentIndex = queue.firstIndex(where: { $0.id == currentTrack.id }) else {
             queue.insert(track, at: 0)
@@ -554,6 +558,70 @@ final class MacPlayerViewModel: ObservableObject {
         playNext(track)
     }
 
+    func addToQueue(_ track: Track) {
+        guard currentTrack?.id != track.id else { return }
+        if shouldRoutePlaybackCommand {
+            sendPlaybackCommand(action: "addToQueue", track: track)
+        }
+
+        queue.removeAll { $0.id == track.id }
+        orderedQueue.removeAll { $0.id == track.id }
+        manuallyQueuedTrackIDs.removeAll { $0 == track.id }
+
+        // Match iPhone: manual additions follow Play Next and other manual songs,
+        // ahead of the remainder of the album or playlist.
+        let queueIndex = manualQueueInsertionIndex(in: queue)
+        let orderedIndex = manualQueueInsertionIndex(in: orderedQueue)
+        queue.insert(track, at: queueIndex)
+        orderedQueue.insert(track, at: orderedIndex)
+        manuallyQueuedTrackIDs.append(track.id)
+    }
+
+    private func manualQueueInsertionIndex(in tracks: [Track]) -> Int {
+        let firstUpcomingIndex = currentTrack.flatMap { current in
+            tracks.firstIndex { $0.id == current.id }
+        }.map { $0 + 1 } ?? tracks.startIndex
+        let manualIDs = Set(manuallyQueuedTrackIDs)
+        // Only the consecutive manual songs immediately up next take priority
+        // over the playlist. A manual song moved farther down must not pull new
+        // additions past the intervening playlist songs.
+        let manualCount = tracks[firstUpcomingIndex...].prefix {
+            manualIDs.contains($0.id)
+        }.count
+        return firstUpcomingIndex + manualCount
+    }
+
+    func canMoveQueuedTrack(_ trackID: UUID) -> Bool {
+        guard currentTrack?.id != trackID,
+              let index = queue.firstIndex(where: { $0.id == trackID }) else { return false }
+        guard let currentTrack,
+              let currentIndex = queue.firstIndex(where: { $0.id == currentTrack.id }) else { return true }
+        return index > currentIndex
+    }
+
+    func moveQueuedTrack(_ trackID: UUID, to targetID: UUID) {
+        guard trackID != targetID,
+              canMoveQueuedTrack(trackID), canMoveQueuedTrack(targetID),
+              let sourceIndex = queue.firstIndex(where: { $0.id == trackID }),
+              let targetIndex = queue.firstIndex(where: { $0.id == targetID }) else { return }
+
+        if shouldRoutePlaybackCommand {
+            sendPlaybackCommand(action: "moveQueueItem", track: queue[sourceIndex], targetTrack: queue[targetIndex])
+        }
+
+        // Inserting at the target's original index moves past it when dragging
+        // down and before it when dragging up, including either end of Up Next.
+        var reorderedQueue = queue
+        let movedTrack = reorderedQueue.remove(at: sourceIndex)
+        reorderedQueue.insert(movedTrack, at: targetIndex)
+        queue = reorderedQueue
+        orderedQueue = reorderedQueue
+
+        // Reordering a playlist song does not turn it into a manual addition.
+        let manualIDs = Set(manuallyQueuedTrackIDs)
+        manuallyQueuedTrackIDs = queue.map(\.id).filter { manualIDs.contains($0) }
+    }
+
     func removeFromQueue(_ track: Track) {
         if shouldRoutePlaybackCommand {
             sendPlaybackCommand(action: "removeFromQueue", track: track)
@@ -562,6 +630,7 @@ final class MacPlayerViewModel: ObservableObject {
         guard currentTrack?.id != track.id else { return }
         queue.removeAll { $0.id == track.id }
         orderedQueue.removeAll { $0.id == track.id }
+        manuallyQueuedTrackIDs.removeAll { $0 == track.id }
     }
 
     func dismissPlaybackError() {
@@ -1242,6 +1311,10 @@ final class MacPlayerViewModel: ObservableObject {
             nextQueue.insert(track, at: 0)
         }
 
+        if nextQueue.map(\.id) != queue.map(\.id) {
+            manuallyQueuedTrackIDs.removeAll()
+        }
+        manuallyQueuedTrackIDs.removeAll { $0 == track.id }
         orderedQueue = nextQueue
         queue = nextQueue
     }
@@ -1381,6 +1454,7 @@ final class MacPlayerViewModel: ObservableObject {
         isApplyingPlaybackSync = true
         queue = remoteQueue
         orderedQueue = remoteQueue
+        manuallyQueuedTrackIDs.removeAll()
         currentTrack = remoteTrack
         isPlaying = state.isPlaying
         isShuffleEnabled = state.isShuffleEnabled
@@ -1450,20 +1524,17 @@ final class MacPlayerViewModel: ObservableObject {
             }
         case "addToQueue":
             if let track = track(forRemoteID: command.trackID) {
-                queue.removeAll { $0.id == track.id }
-                orderedQueue.removeAll { $0.id == track.id }
-                queue.append(track)
-                orderedQueue.append(track)
+                addToQueue(track)
             }
         case "removeFromQueue":
             if let track = track(forRemoteID: command.trackID) {
                 removeFromQueue(track)
             }
         case "moveQueueItem":
-            moveQueueItem(
-                trackID: command.trackID,
-                beforeTrackID: command.targetTrackID
-            )
+            if let movedTrack = track(forRemoteID: command.trackID),
+               let target = track(forRemoteID: command.targetTrackID) {
+                moveQueuedTrack(movedTrack.id, to: target.id)
+            }
         default:
             break
         }
@@ -1521,20 +1592,6 @@ final class MacPlayerViewModel: ObservableObject {
         Task { [weak self] in
             await self?.syncPlaybackSession()
         }
-    }
-
-    private func moveQueueItem(trackID: String?, beforeTrackID: String?) {
-        guard
-            let movedTrack = track(forRemoteID: trackID),
-            let targetTrack = track(forRemoteID: beforeTrackID),
-            let sourceIndex = queue.firstIndex(where: { $0.id == movedTrack.id }),
-            let targetIndex = queue.firstIndex(where: { $0.id == targetTrack.id })
-        else { return }
-
-        let moved = queue.remove(at: sourceIndex)
-        let adjustedTarget = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
-        queue.insert(moved, at: adjustedTarget)
-        orderedQueue = queue
     }
 
     private func tracks(forRemoteIDs ids: [String]?) -> [Track] {

@@ -23,6 +23,7 @@ This first Mac version includes:
 - automatic shared playback with remote control from another Aria device, plus an explicit separate-listening mode
 - live low-to-high audio spectrum driven by decoded playback samples
 - shuffle that mutates the queue
+- drag upcoming songs to reorder the queue, with Add to Queue alongside Play Next in song menus
 - repeat modes
 - cached artwork
 - the Aria app icon
@@ -37,6 +38,18 @@ Run the player geometry checks without starting playback:
 ```sh
 xcrun swiftc AriaMac/Support/VinylPlayerGeometry.swift Tests/VinylPlayerGeometryTests.swift -o /tmp/aria-vinyl-tests
 /tmp/aria-vinyl-tests
+```
+
+Drag an upcoming song onto another to move it to that position in either queue
+view. The current song and playback position stay fixed. Add to Queue follows
+the iPhone behavior: new songs follow Play Next and other manual additions,
+before the remaining album or playlist tracks.
+
+Run queue ordering checks without connecting to the song server or playing audio:
+
+```sh
+xcrun swiftc -module-cache-path /tmp/aria-queue-module-cache -parse-as-library AriaMac/Services/*.swift AriaMac/Models/*.swift AriaMac/Support/*.swift AriaMac/ViewModels/MacPlayerViewModel.swift Tests/MacQueueTests.swift -o /tmp/aria-mac-queue-tests
+/tmp/aria-mac-queue-tests
 ```
 
 ## Seamless album playback
