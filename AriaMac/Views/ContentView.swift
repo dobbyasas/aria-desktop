@@ -8,6 +8,30 @@ private enum MacSidebarDestination: Hashable {
     case playlist(UUID)
 }
 
+// Create each page on its first visit, then retain its native scroll views and local state.
+private struct RetainedLibraryPage<Content: View>: View {
+    let isActive: Bool
+    @ViewBuilder var content: () -> Content
+    @State private var hasBeenActive = false
+
+    var body: some View {
+        Group {
+            if isActive || hasBeenActive {
+                content()
+                    .opacity(isActive ? 1 : 0)
+                    .allowsHitTesting(isActive)
+                    .disabled(!isActive)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityHidden(!isActive)
+            }
+        }
+        .onAppear { hasBeenActive = hasBeenActive || isActive }
+        .onChange(of: isActive) { _, active in
+            hasBeenActive = hasBeenActive || active
+        }
+    }
+}
+
 struct ArtistNameLink: View {
     @EnvironmentObject private var player: MacPlayerViewModel
     @State private var isHovering = false
@@ -51,14 +75,14 @@ struct ContentView: View {
     @State private var selectedAlbumID: String?
     @State private var selectedArtistName: String?
     @State private var artistReturnDestination: MacSidebarDestination?
-    @State private var artistReturnAlbumID: String?
-    @State private var searchText = ""
+    @State private var songSearchText = ""
+    @State private var albumSearchText = ""
     @State private var isDownloadSheetPresented = false
     @State private var isSidebarVisible = true
     @State private var playerBarHeight: CGFloat = 96
 
-    private var isSearching: Bool {
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var isShowingPlayer: Bool {
+        selectedDestination == .player && selectedArtistName == nil
     }
 
     var body: some View {
@@ -70,11 +94,13 @@ struct ContentView: View {
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
 
-                Group {
-                    if selectedDestination == .player && selectedArtistName == nil {
-                        FullscreenPlayerView()
-                    } else {
+                ZStack {
+                    RetainedLibraryPage(isActive: !isShowingPlayer) {
                         libraryDetail
+                    }
+
+                    if isShowingPlayer {
+                        FullscreenPlayerView()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -122,10 +148,8 @@ struct ContentView: View {
             guard let artist else { return }
             if selectedArtistName == nil {
                 artistReturnDestination = selectedDestination
-                artistReturnAlbumID = selectedAlbumID
             }
             selectedDestination = .albums
-            selectedAlbumID = nil
             selectedArtistName = artist.name
             player.dismissArtist()
         }
@@ -143,10 +167,6 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 ZStack {
                     VStack(spacing: 0) {
-                        if selectedArtistName == nil && selectedAlbum == nil {
-                            header
-                        }
-
                         if let error = player.catalogErrorMessage, !player.catalog.isEmpty {
                             InlineStatusBanner(
                                 message: error,
@@ -188,7 +208,7 @@ struct ContentView: View {
                     }
             }
 
-            if player.isAudioVisualizerEnabled, !player.isLyricsPresented {
+            if !isShowingPlayer, player.isAudioVisualizerEnabled, !player.isLyricsPresented {
                 floatingAudioVisualizer
             }
         }
@@ -267,7 +287,6 @@ struct ContentView: View {
                 Spacer()
                 Button {
                     let playlist = player.createPlaylist()
-                    selectedAlbumID = nil
                     selectedArtistName = nil
                     selectedDestination = .playlist(playlist.id)
                 } label: {
@@ -288,7 +307,6 @@ struct ContentView: View {
                     ForEach(sortedPlaylists) { playlist in
                         let destination = MacSidebarDestination.playlist(playlist.id)
                         Button {
-                            selectedAlbumID = nil
                             selectedArtistName = nil
                             selectedDestination = destination
                         } label: {
@@ -345,7 +363,6 @@ struct ContentView: View {
         let isSelected = selectedDestination == destination
 
         return Button {
-            selectedAlbumID = nil
             selectedArtistName = nil
             selectedDestination = destination
         } label: {
@@ -358,46 +375,42 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    private var header: some View {
-        HStack(alignment: .center, spacing: 18) {
+    private func header(for destination: MacSidebarDestination) -> some View {
+        let searchText = destination == .songs ? $songSearchText : $albumSearchText
+        let isSearching = !searchText.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        return HStack(alignment: .center, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(detailTitle)
+                Text(detailTitle(for: destination))
                     .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(Color.ariaTextPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
 
-                Group {
-                    if selectedDestination == .albums, let artist = selectedAlbum?.artist {
-                        ArtistNameLink(name: artist)
-                    } else {
-                        Text(subtitle)
-                    }
-                }
-                .font(.subheadline)
-                .foregroundStyle(Color.ariaTextSecondary)
-                .lineLimit(1)
+                Text(subtitle(for: destination))
+                    .font(.subheadline)
+                    .foregroundStyle(Color.ariaTextSecondary)
+                    .lineLimit(1)
             }
             .layoutPriority(1)
 
             Spacer()
 
-            if selectedArtistName == nil
-                && (selectedDestination == .songs || (selectedDestination == .albums && selectedAlbumID == nil)) {
+            if destination == .songs || destination == .albums {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(Color.ariaTextSecondary)
 
                     TextField(
-                        selectedDestination == .songs ? "Search songs or artists" : "Search albums or artists",
-                        text: $searchText
+                        destination == .songs ? "Search songs or artists" : "Search albums or artists",
+                        text: searchText
                     )
                         .textFieldStyle(.plain)
                         .foregroundStyle(Color.ariaTextPrimary)
 
                     if isSearching {
                         Button {
-                            searchText = ""
+                            searchText.wrappedValue = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(Color.ariaTextSecondary)
@@ -456,11 +469,68 @@ struct ContentView: View {
         .accessibilityLabel("Back")
     }
 
-    @ViewBuilder
     private var content: some View {
-        if let selectedArtistName {
-            ArtistPageView(artistName: selectedArtistName)
-        } else if player.catalog.isEmpty && player.isCatalogLoading {
+        ZStack {
+            RetainedLibraryPage(isActive: selectedDestination == .songs && selectedArtistName == nil) {
+                VStack(spacing: 0) {
+                    header(for: .songs)
+                    catalogPage {
+                        SongsView(tracks: filteredSongs, isSearching: !songSearchText.isEmpty)
+                    }
+                }
+            }
+
+            RetainedLibraryPage(isActive: selectedDestination == .albums && selectedArtistName == nil) {
+                ZStack {
+                    // Keep the grid's own header and viewport intact behind an album.
+                    RetainedLibraryPage(isActive: selectedAlbum == nil) {
+                        VStack(spacing: 0) {
+                            header(for: .albums)
+                            catalogPage {
+                                AlbumsView(albums: filteredAlbums, isSearching: !albumSearchText.isEmpty) { album in
+                                    selectedAlbumID = album.id
+                                }
+                            }
+                        }
+                    }
+
+                    if let selectedAlbum {
+                        MacAlbumDetailView(album: selectedAlbum) {
+                            selectedAlbumID = nil
+                        }
+                        .id(selectedAlbum.id)
+                    }
+                }
+            }
+
+            ForEach(player.playlists) { playlist in
+                RetainedLibraryPage(isActive: selectedDestination == .playlist(playlist.id) && selectedArtistName == nil) {
+                    VStack(spacing: 0) {
+                        header(for: .playlist(playlist.id))
+                        MacPlaylistDetailView(playlist: playlist)
+                    }
+                }
+            }
+
+            if case .playlist = selectedDestination, selectedPlaylist == nil, selectedArtistName == nil {
+                EmptyStateView(
+                    title: "Playlist unavailable",
+                    message: "Refresh the library to load this playlist again.",
+                    systemImage: "music.note.list"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if let selectedArtistName {
+                ArtistPageView(artistName: selectedArtistName)
+                    .id(selectedArtistName)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func catalogPage<Page: View>(@ViewBuilder page: () -> Page) -> some View {
+        if player.catalog.isEmpty && player.isCatalogLoading {
             EmptyStateView(
                 title: "Loading your library",
                 message: "Pulling songs from the Aria server.",
@@ -471,46 +541,13 @@ struct ContentView: View {
             ServerErrorState(message: error)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            switch selectedDestination {
-            case .player:
-                EmptyView()
-            case .songs:
-                SongsView(
-                    tracks: filteredSongs,
-                    isSearching: isSearching
-                )
-            case .albums:
-                if let selectedAlbum {
-                    MacAlbumDetailView(album: selectedAlbum) {
-                        selectedAlbumID = nil
-                    }
-                } else {
-                    AlbumsView(
-                        albums: filteredAlbums,
-                        isSearching: isSearching
-                    ) { album in
-                        selectedAlbumID = album.id
-                    }
-                }
-            case .playlist:
-                if let selectedPlaylist {
-                    MacPlaylistDetailView(playlist: selectedPlaylist)
-                } else {
-                    EmptyStateView(
-                        title: "Playlist unavailable",
-                        message: "Refresh the library to load this playlist again.",
-                        systemImage: "music.note.list"
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
+            page()
         }
     }
 
     private var filteredAlbums: [AriaAlbum] {
-        guard isSearching else { return player.albums }
-
-        let tokens = searchText.casefoldedTokens
+        let tokens = albumSearchText.casefoldedTokens
+        guard !tokens.isEmpty else { return player.albums }
         return player.albums.filter { album in
             let text = "\(album.title) \(album.artist)".localizedLowercase
             return tokens.allSatisfy { text.contains($0) }
@@ -525,8 +562,8 @@ struct ContentView: View {
             }
             return titleOrder == .orderedAscending
         }
-        guard isSearching else { return tracks }
-        let tokens = searchText.casefoldedTokens
+        let tokens = songSearchText.casefoldedTokens
+        guard !tokens.isEmpty else { return tracks }
         return tracks.filter { track in
             let text = "\(track.title) \(track.artist) \(track.album)".localizedLowercase
             return tokens.allSatisfy { text.contains($0) }
@@ -546,9 +583,7 @@ struct ContentView: View {
     private func closeArtistPage() {
         selectedArtistName = nil
         selectedDestination = artistReturnDestination ?? .albums
-        selectedAlbumID = artistReturnAlbumID
         artistReturnDestination = nil
-        artistReturnAlbumID = nil
     }
 
     private var sortedPlaylists: [AriaPlaylist] {
@@ -564,33 +599,27 @@ struct ContentView: View {
         }.map(\.element)
     }
 
-    private var detailTitle: String {
-        if let selectedArtistName {
-            return selectedArtistName
-        }
-        switch selectedDestination {
+    private func detailTitle(for destination: MacSidebarDestination) -> String {
+        switch destination {
         case .songs:
             return "Songs"
         case .albums:
-            return selectedAlbum?.title ?? "Albums"
-        case .playlist:
-            return selectedPlaylist?.title ?? "Playlist"
+            return "Albums"
+        case .playlist(let id):
+            return player.playlists.first { $0.id == id }?.title ?? "Playlist"
         case .player:
             return "Player"
         }
     }
 
-    private var subtitle: String {
-        if selectedArtistName != nil {
-            return "Artist"
-        }
-        switch selectedDestination {
+    private func subtitle(for destination: MacSidebarDestination) -> String {
+        switch destination {
         case .songs:
             return "\(filteredSongs.count) songs"
         case .albums:
-            return selectedAlbum?.artist ?? "\(filteredAlbums.count) albums"
-        case .playlist:
-            return selectedPlaylist?.subtitle ?? "Shared playlist"
+            return "\(filteredAlbums.count) albums"
+        case .playlist(let id):
+            return player.playlists.first { $0.id == id }?.subtitle ?? "Shared playlist"
         case .player:
             return "Now playing"
         }
