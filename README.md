@@ -124,6 +124,11 @@ instead of full-resolution images. Concurrent requests share downloads and
 thumbnail decoding. The decoded-image cache has a 24 MiB cost budget; image
 references held by visible views and other app memory are additional.
 
+Album tracks use a shared loaded thumbnail. Rows entering
+the viewport do not start artwork tasks or fade the cover in again. The track
+panel rounds its background without clipping the entire long list. Its lazy
+stack contains only track rows, keeping height estimates independent of the hero.
+
 Playback sync reuses queue IDs and catalog lookups, skips unchanged state, and
 polls less often for a single idle/background host. Multiple-device sessions
 retain the 500 ms polling interval. The slowest healthy heartbeat is 2 seconds,
@@ -175,3 +180,21 @@ xcrun swiftc -O -parse-as-library AriaMac/Services/AudioSpectrumAnalyzer.swift \
   Tests/AudioSpectrumBenchmark.swift -o /tmp/aria-spectrum-benchmark
 /tmp/aria-spectrum-benchmark
 ```
+
+Album scrolling can be measured without contacting the server or playing audio:
+
+```sh
+xcrun swiftc -O -module-cache-path /tmp/aria-album-module-cache -parse-as-library \
+  AriaMac/Services/*.swift AriaMac/Models/*.swift AriaMac/Support/*.swift \
+  AriaMac/ViewModels/*.swift AriaMac/Views/*.swift Tests/AlbumScrollBenchmark.swift \
+  -o /tmp/aria-album-scroll-benchmark
+/tmp/aria-album-scroll-benchmark
+```
+
+This fixture uses 1,000 synthetic tracks and a shared 2000×2000 local cover in a
+900×700 window. It reports synchronous scroll/layout/display work over 360 steps;
+these numbers exclude asynchronous GPU rendering and are not end-to-end frame
+latency. Use `ARIA_TRACK_COUNT=30` for a typical album, or
+`ARIA_MANUAL_PREVIEW=1` to leave the window open for manual inspection. Run
+comparisons separately with the same compiler settings and no builds in progress.
+The navigation fixture above checks returning to the same album scroll position.

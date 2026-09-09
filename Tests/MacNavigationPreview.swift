@@ -42,7 +42,7 @@ private final class NavigationProtocol: URLProtocol {
 @main
 @MainActor
 struct MacNavigationPreview: App {
-    @StateObject private var player: MacPlayerViewModel = {
+    @State private var player: MacPlayerViewModel = {
         URLProtocol.registerClass(NavigationProtocol.self)
         return MacPlayerViewModel(serverClient: AriaServerClient(baseURLs: [URL(string: "https://aria-navigation.invalid")!]))
     }()
@@ -50,7 +50,7 @@ struct MacNavigationPreview: App {
     var body: some Scene {
         WindowGroup("Aria navigation preview") {
             ContentView()
-                .environmentObject(player)
+                .environment(player)
                 .frame(minWidth: 860, minHeight: 600)
                 .task {
                     await player.refreshCatalog()

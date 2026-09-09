@@ -1,6 +1,13 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.22.1
+Created: 2026-09-09
+
+Fixed:
+- Reduced Mac album track scrolling work by removing full-list clipping while preserving stable lazy row sizing.
+- Shared one loaded cover thumbnail across album rows, avoiding per-row artwork tasks and repeated fade-ins during scrolling.
+
 Version 1.22.0
 Created: 2026-09-06
 
