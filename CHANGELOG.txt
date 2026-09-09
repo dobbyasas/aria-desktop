@@ -1,6 +1,18 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.22.2
+Created: 2026-09-09
+
+Changed:
+- The normal AriaMac Run scheme now launches an optimized Release build without the debugger; AriaMac Debug remains available for development.
+
+Fixed:
+- Moved curved queue scrolling to visual transforms with stable row widths and cached queue-index lookups.
+- Reused warm artwork immediately without scrolling fade-ins, and downsampled embedded playlist covers off the main thread.
+- Sorted the Songs catalog only when library data changes instead of during interface redraws.
+- Built song action menus and playlist membership checks on demand instead of for every scrolling row.
+
 Version 1.22.1
 Created: 2026-09-09
 

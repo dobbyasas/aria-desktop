@@ -113,5 +113,12 @@ struct MacQueueTests {
     private static func expect(_ player: MacPlayerViewModel, _ expected: [Track], _ message: String) {
         precondition(player.queue.map(\.id) == expected.map(\.id),
                      "\(message): got \(player.queue.map(\.title))")
+        let currentIndex = expected.firstIndex { $0.id == player.currentTrack?.id }
+        for (index, track) in expected.enumerated() {
+            precondition(player.queueIndex(for: track.id) == index, "Queue lookup must follow every edit")
+            let movable = track.id != player.currentTrack?.id && (currentIndex.map { index > $0 } ?? true)
+            precondition(player.canMoveQueuedTrack(track.id) == movable, "Only upcoming tracks may move")
+        }
+        precondition(player.queueIndex(for: UUID()) == nil)
     }
 }

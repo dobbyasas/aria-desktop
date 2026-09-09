@@ -2,7 +2,11 @@
 
 A standalone macOS SwiftUI version of Aria.
 
-Open `AriaMac.xcodeproj`, build the `AriaMac` scheme, and run it on macOS.
+Open `AriaMac.xcodeproj` and run the `AriaMac` scheme on macOS. This shared
+scheme launches an optimized Release build without the debugger. Use the separate
+`AriaMac Debug` scheme when you need breakpoints and unoptimized local variables.
+An already running Debug app must be stopped and run again with `AriaMac` to use
+the optimized build.
 The app currently connects to the same song server as the iPhone app. It tries
 Tailscale first, then falls back to the local Wi-Fi address:
 
@@ -198,3 +202,34 @@ latency. Use `ARIA_TRACK_COUNT=30` for a typical album, or
 `ARIA_MANUAL_PREVIEW=1` to leave the window open for manual inspection. Run
 comparisons separately with the same compiler settings and no builds in progress.
 The navigation fixture above checks returning to the same album scroll position.
+
+## List scrolling checks
+
+The curved Now Playing queue uses visual offsets with stable text widths, so
+scrolling no longer reflows every row. Queue eligibility lookups use an index
+rebuilt when the queue changes. Songs sorting is similarly tied to catalog edits.
+Warm covers render immediately; newly loaded covers do not fade while scrolling.
+Embedded playlist covers are downsampled on the artwork actor instead of decoded
+inside the sidebar or playlist view body.
+
+`Tests/ListScrollBenchmark.swift` exercises Songs, album tracks, playlists, the
+curved queue, and the album grid with synthetic data and intercepted networking.
+Compile it using the album benchmark command above, substituting this test file,
+and select a page with `ARIA_LIST=songs|album|playlist|queue|albums`. It reports
+synchronous scroll/layout/display work, not end-to-end GPU frame latency. Use the
+same optimization settings and window size, and run comparisons one at a time
+with builds finished. The queue/geometry and performance tests above check
+ordering, Observation dependencies, and both downloaded and embedded thumbnails.
+
+Song action menus are built on click, including playlist membership checks. The
+menu retains Play Next, Add to Queue, Add to Playlist, and Edit Metadata.
+
+Local comparison on 2026-09-09, 1,000 synthetic songs, 900×700 windows, optimized
+builds, and the same shared cover: queue scroll/layout work averaged 10.43 ms
+before versus 7.70 ms after; the 95th percentile was 12.57 versus 9.25 ms. Songs
+and playlist timings did not show a consistent gain in this fixture. These are
+short synchronous measurements, not a guarantee of frame rate during real
+playback. The cache, embedded-cover, Observation, and queue regression tests pass;
+the deferred menu was exercised with isolated playlist creation and membership
+checks. The Release project build passed before the final menu change, and all
+final view sources compiled and ran in the review/benchmark fixture.

@@ -3,38 +3,39 @@ import SwiftUI
 struct ArtworkView: View {
     @Environment(\.displayScale) private var displayScale
     @State private var cachedArtwork: NSImage?
+    @State private var loadedKey: String?
 
     let track: Track
     var size: CGFloat
     var cornerRadius: CGFloat = 8
 
     var body: some View {
-        ArtworkImage(track: track, image: cachedArtwork, size: size, cornerRadius: cornerRadius)
-            .task(id: "\(track.artworkURL?.absoluteString ?? "")|\(pixelSize)") {
+        let warmImage = track.artworkURL.flatMap {
+            AriaArtworkCache.shared.cachedImage(for: $0, maxPixelSize: pixelSize)
+        }
+        ArtworkImage(track: track, image: loadedKey == requestKey ? cachedArtwork : warmImage, size: size, cornerRadius: cornerRadius)
+            .task(id: requestKey) {
                 await loadArtwork()
             }
     }
 
+    private var requestKey: String { "\(track.artworkURL?.absoluteString ?? "")|\(pixelSize)" }
+
     private var pixelSize: Int { AriaArtworkCache.pixelSize(for: size * displayScale) }
 
     private func loadArtwork() async {
-        cachedArtwork = nil
-
-        guard let artworkURL = track.artworkURL else {
-            return
+        guard let artworkURL = track.artworkURL else { return }
+        let key = requestKey
+        let image: NSImage?
+        if let warmImage = AriaArtworkCache.shared.cachedImage(for: artworkURL, maxPixelSize: pixelSize) {
+            image = warmImage
+        } else {
+            image = await AriaArtworkCache.shared.image(for: artworkURL, maxPixelSize: pixelSize)
         }
-
-        guard let image = await AriaArtworkCache.shared.image(for: artworkURL, maxPixelSize: pixelSize) else {
-            return
-        }
-
-        guard !Task.isCancelled, track.artworkURL == artworkURL else {
-            return
-        }
-
-        withAnimation(.easeOut(duration: 0.18)) {
-            cachedArtwork = image
-        }
+        guard !Task.isCancelled else { return }
+        // Pin the visible image even if NSCache later evicts its entry.
+        cachedArtwork = image
+        loadedKey = key
     }
 }
 

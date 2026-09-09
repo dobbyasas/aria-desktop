@@ -24,8 +24,9 @@ private struct QueueReorderingModifier: ViewModifier {
     let spacing: CGFloat
 
     private var movesDown: Bool {
-        guard let sourceIndex = player.queue.firstIndex(where: { $0.id == dragState.sourceID }),
-              let targetIndex = player.queue.firstIndex(where: { $0.id == trackID }) else { return false }
+        guard dragState.targetID == trackID, let sourceID = dragState.sourceID,
+              let sourceIndex = player.queueIndex(for: sourceID),
+              let targetIndex = player.queueIndex(for: trackID) else { return false }
         return sourceIndex < targetIndex
     }
 

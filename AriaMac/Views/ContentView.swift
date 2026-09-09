@@ -562,13 +562,7 @@ struct ContentView: View {
     }
 
     private var filteredSongs: [Track] {
-        let tracks = player.catalog.sorted {
-            let titleOrder = $0.title.localizedCaseInsensitiveCompare($1.title)
-            if titleOrder == .orderedSame {
-                return $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending
-            }
-            return titleOrder == .orderedAscending
-        }
+        let tracks = player.songsByTitle
         let tokens = songSearchText.casefoldedTokens
         guard !tokens.isEmpty else { return tracks }
         return tracks.filter { track in
@@ -1872,42 +1866,8 @@ struct TrackRow: View {
                 .foregroundStyle(Color.ariaTextSecondary)
                 .help("Remove from queue")
             } else {
-                Menu {
-                    Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                        player.playNext(track)
-                    }
-
-                    Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") {
-                        player.addToQueue(track)
-                    }
-
-                    Menu("Add to Playlist") {
-                        Button("New Playlist with Song") {
-                            let playlist = player.createPlaylist()
-                            player.add(track, to: playlist)
-                        }
-
-                        ForEach(player.playlists) { playlist in
-                            Button(playlist.title) {
-                                player.add(track, to: playlist)
-                            }
-                            .disabled(playlist.tracks.contains(where: { $0.id == track.id }))
-                        }
-                    }
-
-                    Divider()
-
-                    Button("Edit Metadata", systemImage: "slider.horizontal.3") {
-                        player.editMetadata(for: track)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .frame(width: 28, height: 28)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .foregroundStyle(isHovering ? Color.ariaTextSecondary : Color.ariaTextSecondary.opacity(0.45))
-                .help("More actions")
+                TrackActionMenu(track: track, isHovering: isHovering)
+                    .frame(width: 28, height: 28)
             }
         }
         .padding(.horizontal, 12)
@@ -2167,30 +2127,42 @@ struct PlaylistCard: View {
 }
 
 struct PlaylistArtworkView: View {
+    @Environment(\.displayScale) private var displayScale
+    @State private var coverImage: NSImage?
+    @State private var loadedCover: CoverRequest?
+
     let playlist: AriaPlaylist
     let size: CGFloat
     var cornerRadius: CGFloat = 8
 
+    private struct CoverRequest: Equatable {
+        let data: Data?
+        let pixels: Int
+    }
+
+    private var request: CoverRequest {
+        CoverRequest(data: playlist.coverImageData, pixels: AriaArtworkCache.pixelSize(for: size * displayScale))
+    }
+
     var body: some View {
         Group {
-        if let coverImageData = playlist.coverImageData,
-           let image = NSImage(data: coverImageData) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFill()
+            if loadedCover == request, let coverImage {
+                Image(nsImage: coverImage)
+                    .resizable()
+                    .scaledToFill()
                     .frame(width: size, height: size)
-        } else if let firstTrack = playlist.tracks.first {
+            } else if playlist.coverImageData == nil || loadedCover == request, let firstTrack = playlist.tracks.first {
                 ArtworkView(track: firstTrack, size: size, cornerRadius: cornerRadius)
-        } else {
+            } else {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.ariaPanelRaised)
+                    .fill(Color.ariaPanelRaised)
                     .frame(width: size, height: size)
-                .overlay(
-                    Image(systemName: "music.note.list")
+                    .overlay(
+                        Image(systemName: "music.note.list")
                             .font(.system(size: size * 0.34, weight: .semibold))
-                        .foregroundStyle(Color.ariaAccent)
-                )
-        }
+                            .foregroundStyle(Color.ariaAccent)
+                    )
+            }
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -2198,6 +2170,18 @@ struct PlaylistArtworkView: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(.white.opacity(0.1), lineWidth: 1)
         )
+        .task(id: request) {
+            let requestedCover = request
+            guard let data = requestedCover.data else {
+                coverImage = nil
+                loadedCover = nil
+                return
+            }
+            let image = await AriaArtworkCache.shared.image(from: data, maxPixelSize: requestedCover.pixels)
+            guard !Task.isCancelled else { return }
+            coverImage = image
+            loadedCover = requestedCover
+        }
     }
 }
 
@@ -3151,5 +3135,77 @@ private struct PlaybackWindowVisibilityReader: NSViewRepresentable {
         }
 
         deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    }
+}
+
+/// Construct the song's menu only when it opens. SwiftUI Menu otherwise builds
+/// a menu hierarchy (including playlist membership checks) for every new row.
+private struct TrackActionMenu: NSViewRepresentable {
+    @Environment(MacPlayerViewModel.self) private var player
+    let track: Track
+    let isHovering: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(image: Coordinator.menuImage, target: context.coordinator, action: #selector(Coordinator.openMenu(_:)))
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.setAccessibilityLabel("More actions")
+        button.toolTip = "More actions"
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.track = track
+        context.coordinator.player = player
+        button.contentTintColor = NSColor(Color.ariaTextSecondary.opacity(isHovering ? 1 : 0.45))
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        static let menuImage = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: nil)!
+        var track: Track?
+        weak var player: MacPlayerViewModel?
+
+        @objc func openMenu(_ button: NSButton) {
+            guard let track, let player else { return }
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            menu.addItem(ActionItem("Play Next", symbol: "text.line.first.and.arrowtriangle.forward") { player.playNext(track) })
+            menu.addItem(ActionItem("Add to Queue", symbol: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(track) })
+            let playlists = NSMenu(title: "Add to Playlist")
+            playlists.autoenablesItems = false
+            playlists.addItem(ActionItem("New Playlist with Song") {
+                let playlist = player.createPlaylist()
+                player.add(track, to: playlist)
+            })
+            for playlist in player.playlists {
+                let item = ActionItem(playlist.title) { player.add(track, to: playlist) }
+                item.isEnabled = !playlist.tracks.contains { $0.id == track.id }
+                playlists.addItem(item)
+            }
+            let playlistItem = NSMenuItem(title: "Add to Playlist", action: nil, keyEquivalent: "")
+            playlistItem.submenu = playlists
+            menu.addItem(playlistItem)
+            menu.addItem(.separator())
+            menu.addItem(ActionItem("Edit Metadata", symbol: "slider.horizontal.3") { player.editMetadata(for: track) })
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
+        }
+    }
+
+    @MainActor
+    private final class ActionItem: NSMenuItem {
+        private let handler: () -> Void
+
+        init(_ title: String, symbol: String? = nil, handler: @escaping () -> Void) {
+            self.handler = handler
+            super.init(title: title, action: #selector(invoke), keyEquivalent: "")
+            target = self
+            if let symbol { image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+        }
+
+        required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        @objc private func invoke() { handler() }
     }
 }

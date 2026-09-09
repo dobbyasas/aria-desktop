@@ -31,6 +31,14 @@ struct MacPerformanceTests {
         precondition(libraryChanges.value == 1, "Real queue changes must still invalidate the queue")
         print("PASS: 100 playback ticks produce zero library/queue invalidations; real queue edits still notify")
 
+        let queueLookupChanges = Counter()
+        withObservationTracking {
+            _ = player.queueIndex(for: track.id)
+        } onChange: { queueLookupChanges.value += 1 }
+        player.addToQueue(Track(title: "Lookup invalidation"))
+        precondition(queueLookupChanges.value == 1, "Cached queue lookups must still observe queue edits")
+        print("PASS: cached queue lookups retain Observation notifications")
+
         let firstWindow = UUID(), secondWindow = UUID()
         player.setPlaybackWindowVisible(true, id: firstWindow)
         player.setPlaybackWindowVisible(true, id: secondWindow)
@@ -72,13 +80,22 @@ struct MacPerformanceTests {
         let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)!
         CGImageDestinationAddImage(destination, context.makeImage()!, nil)
         precondition(CGImageDestinationFinalize(destination))
+        precondition(AriaArtworkCache.shared.cachedImage(for: url, maxPixelSize: 64) == nil)
         async let first = AriaArtworkCache.shared.image(for: url, maxPixelSize: 64)
         async let second = AriaArtworkCache.shared.image(for: url, maxPixelSize: 64)
         let (row, duplicate) = await (first, second)
         precondition(row != nil && row === duplicate, "Concurrent row requests must share one decoded image")
+        precondition(AriaArtworkCache.shared.cachedImage(for: url, maxPixelSize: 64) === row,
+                     "Warm rows must synchronously reuse the decoded thumbnail")
+        precondition(AriaArtworkCache.shared.cachedImage(for: url, maxPixelSize: 400) == nil,
+                     "A larger cover must not use the row-sized variant")
         precondition(row!.size.width == 96 && row!.size.height == 64, "Row art must be downsampled with aspect ratio preserved")
         let record = await AriaArtworkCache.shared.image(for: url, maxPixelSize: 400)
         precondition(record!.size.width == 512 && record !== row, "Record art needs its own sharp Retina variant")
+        let embedded = await AriaArtworkCache.shared.image(from: try Data(contentsOf: url), maxPixelSize: 60)
+        precondition(embedded?.size == NSSize(width: 96, height: 64), "Embedded playlist covers must be downsampled")
+        let badEmbedded = await AriaArtworkCache.shared.image(from: Data("bad image".utf8), maxPixelSize: 60)
+        precondition(badEmbedded == nil)
         let corruptURL = directory.appendingPathComponent("corrupt.png")
         try Data("not an image".utf8).write(to: corruptURL)
         let corrupt = await AriaArtworkCache.shared.image(for: corruptURL)

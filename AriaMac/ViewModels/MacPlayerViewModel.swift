@@ -118,14 +118,23 @@ final class MacPlayerViewModel {
     private(set) var catalog: [Track] = [] {
         didSet {
             tracksByPlaybackID = Dictionary(catalog.map { (remotePlaybackID(for: $0), $0) }, uniquingKeysWith: { _, latest in latest })
+            songsByTitle = catalog.sorted {
+                let titleOrder = $0.title.localizedCaseInsensitiveCompare($1.title)
+                if titleOrder == .orderedSame {
+                    return $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending
+                }
+                return titleOrder == .orderedAscending
+            }
         }
     }
+    private(set) var songsByTitle: [Track] = []
     private(set) var albums: [AriaAlbum] = []
     private(set) var playlists: [AriaPlaylist] = []
     private(set) var playlistLastPlayedAt: [UUID: TimeInterval] = [:]
     private(set) var queue: [Track] = [] {
         didSet {
             playbackQueueIDs = queue.map(remotePlaybackID)
+            queueIndices = Dictionary(queue.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
             scheduleAudioQueueUpdate()
         }
     }
@@ -173,6 +182,7 @@ final class MacPlayerViewModel {
     private(set) var hasVisiblePlaybackWindow = false
     @ObservationIgnored private var visiblePlaybackWindows = Set<UUID>()
     @ObservationIgnored private var activeSpectrumViews = Set<UUID>()
+    @ObservationIgnored private var queueIndices: [UUID: Int] = [:]
     @ObservationIgnored private var playbackQueueIDs: [String] = []
     @ObservationIgnored private var tracksByPlaybackID: [String: Track] = [:]
     private let playbackDeviceName = Host.current().localizedName ?? "Mac"
@@ -623,11 +633,17 @@ final class MacPlayerViewModel {
         return firstUpcomingIndex + manualCount
     }
 
+    func queueIndex(for trackID: UUID) -> Int? {
+        // Keep Observation tied to queue edits even though the lookup is precomputed.
+        access(keyPath: \.queue)
+        return queueIndices[trackID]
+    }
+
     func canMoveQueuedTrack(_ trackID: UUID) -> Bool {
         guard currentTrack?.id != trackID,
-              let index = queue.firstIndex(where: { $0.id == trackID }) else { return false }
+              let index = queueIndex(for: trackID) else { return false }
         guard let currentTrack,
-              let currentIndex = queue.firstIndex(where: { $0.id == currentTrack.id }) else { return true }
+              let currentIndex = queueIndex(for: currentTrack.id) else { return true }
         return index > currentIndex
     }
 

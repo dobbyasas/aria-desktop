@@ -280,20 +280,24 @@ private struct VinylQueueView: View {
                 ScrollView {
                     LazyVStack(spacing: 4) {
                         ForEach(Array(player.queue.enumerated()), id: \.element.id) { index, track in
-                            GeometryReader { rowGeometry in
-                                let midY = rowGeometry.frame(in: .named(scrollSpace)).midY + 36
-                                let inset = VinylQueueArc.leadingInset(rowMidY: midY, diameter: recordDiameter)
-                                VinylQueueRow(track: track, index: index)
-                                    .queueReorderable(
-                                        trackID: track.id,
-                                        enabled: player.canMoveQueuedTrack(track.id),
-                                        dragState: dragState,
-                                        spacing: 4
-                                    )
-                                    .padding(.leading, inset)
-                            }
-                            .frame(height: 52)
-                            .id(track.id)
+                            // Reserve a stable text width; only the rendered position follows
+                            // the vinyl. Scrolling must not reflow every label on every frame.
+                            let maximumInset = VinylQueueArc.leadingInset(rowMidY: recordDiameter / 2, diameter: recordDiameter)
+                            VinylQueueRow(track: track, index: index)
+                                .queueReorderable(
+                                    trackID: track.id,
+                                    enabled: player.canMoveQueuedTrack(track.id),
+                                    dragState: dragState,
+                                    spacing: 4
+                                )
+                                .padding(.leading, maximumInset)
+                                .visualEffect { [scrollSpace, recordDiameter] content, geometry in
+                                    let midY = geometry.frame(in: .named(scrollSpace)).midY + 36
+                                    let inset = VinylQueueArc.leadingInset(rowMidY: midY, diameter: recordDiameter)
+                                    return content.offset(x: inset - maximumInset)
+                                }
+                                .frame(height: 52)
+                                .id(track.id)
                         }
                     }
                     .scrollTargetLayout()

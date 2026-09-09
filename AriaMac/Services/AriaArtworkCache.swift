@@ -8,15 +8,13 @@ actor AriaArtworkCache {
     private let cacheDuration: TimeInterval = 7 * 24 * 60 * 60
     private let cacheDirectory: URL
     private let fileManager = FileManager.default
-    private let memoryCache = NSCache<NSString, NSImage>()
+    private nonisolated let memoryCache = ArtworkMemoryCache()
     private var pendingImages: [String: Task<NSImage?, Never>] = [:]
     private var pendingDownloads: [URL: Task<Data?, Never>] = [:]
 
     private init() {
         let cachesDirectory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         cacheDirectory = cachesDirectory.appendingPathComponent("AriaMacArtworkCache", isDirectory: true)
-        memoryCache.totalCostLimit = 24 * 1_024 * 1_024
-        memoryCache.countLimit = 256
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
 
@@ -25,10 +23,17 @@ actor AriaArtworkCache {
         [96, 256, 512, 1_024].first { CGFloat($0) >= requestedSize } ?? 1_024
     }
 
+    /// NSCache is thread-safe. A warm cover can be rendered on the first body pass
+    /// without an actor hop, placeholder or fade during scrolling.
+    nonisolated func cachedImage(for url: URL, maxPixelSize: Int) -> NSImage? {
+        let pixels = Self.pixelSize(for: CGFloat(maxPixelSize))
+        return memoryCache.image(for: "\(url.absoluteString)|\(pixels)")
+    }
+
     func image(for url: URL, maxPixelSize: Int = 512) async -> NSImage? {
         let pixels = Self.pixelSize(for: CGFloat(maxPixelSize))
         let key = "\(url.absoluteString)|\(pixels)"
-        if let image = memoryCache.object(forKey: key as NSString) { return image }
+        if let image = memoryCache.image(for: key) { return image }
         if let pending = pendingImages[key] { return await pending.value }
 
         let task = Task { await loadImage(for: url, pixels: pixels) }
@@ -37,9 +42,16 @@ actor AriaArtworkCache {
         pendingImages[key] = nil
         if let image {
             let cost = Int(image.size.width) * Int(image.size.height) * 4
-            memoryCache.setObject(image, forKey: key as NSString, cost: cost)
+            memoryCache.insert(image, for: key, cost: cost)
         }
         return image
+    }
+
+    /// Embedded playlist covers also need downsampling off the main actor.
+    func image(from data: Data, maxPixelSize: Int) -> NSImage? {
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, options) else { return nil }
+        return Self.thumbnail(source, pixels: Self.pixelSize(for: CGFloat(maxPixelSize)))
     }
 
     func palette(for url: URL, symbolName: String) async -> ArtworkPalette? {
@@ -233,5 +245,21 @@ private extension NSColor {
             Int(boostedRGB.greenComponent * 255),
             Int(boostedRGB.blueComponent * 255)
         )
+    }
+}
+
+/// The only shared mutable state here is NSCache, whose operations are thread-safe.
+/// Images are fully decoded before insertion and never mutated by the cache.
+private final class ArtworkMemoryCache: @unchecked Sendable {
+    private let cache = NSCache<NSString, NSImage>()
+
+    init() {
+        cache.totalCostLimit = 24 * 1_024 * 1_024
+        cache.countLimit = 256
+    }
+
+    func image(for key: String) -> NSImage? { cache.object(forKey: key as NSString) }
+    func insert(_ image: NSImage, for key: String, cost: Int) {
+        cache.setObject(image, forKey: key as NSString, cost: cost)
     }
 }
