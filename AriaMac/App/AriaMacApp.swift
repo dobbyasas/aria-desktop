@@ -13,12 +13,12 @@ enum AriaRelease {
 
 @main
 struct AriaMacApp: App {
-    @StateObject private var player = MacPlayerViewModel()
+    @State private var player = MacPlayerViewModel()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(player)
+                .environment(player)
                 .frame(minWidth: 860, minHeight: 600)
         }
         .windowStyle(.hiddenTitleBar)

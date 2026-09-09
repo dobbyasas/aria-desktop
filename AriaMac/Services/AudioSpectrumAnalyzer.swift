@@ -8,17 +8,27 @@ final class AudioSpectrumAnalyzer {
     private var format = AudioStreamBasicDescription()
     private var windowedSamples: [Float] = []
     private var smoothedLevels: [Float]
+    private var hannWindow: [Float] = []
+    private var coefficients: [Double] = []
+    private var bandDecibels: [Float]
+    private var secondsSinceAnalysis: Double = .infinity
+    private let analysisInterval = 1.0 / 20
 
     init(bandCount: Int = 32) {
         self.bandCount = bandCount
         smoothedLevels = Array(repeating: 0.04, count: bandCount)
+        bandDecibels = Array(repeating: -120, count: bandCount)
     }
 
     /// The engine tap continues across track boundaries, just like the output audio.
     func analyze(_ buffer: AVAudioPCMBuffer) {
         let description = buffer.format.streamDescription.pointee
+        guard description.mSampleRate > 0 else { return }
+        secondsSinceAnalysis += Double(buffer.frameLength) / description.mSampleRate
+        guard secondsSinceAnalysis >= analysisInterval else { return }
+        secondsSinceAnalysis = 0
         if format.mSampleRate != description.mSampleRate || format.mChannelsPerFrame != description.mChannelsPerFrame
-            || windowedSamples.count < Int(buffer.frameLength) {
+            || windowedSamples.count != min(Int(buffer.frameLength), 1_024) {
             prepare(maxFrames: Int(buffer.frameLength), format: description)
         }
         analyze(bufferList: buffer.mutableAudioBufferList, frameCount: Int(buffer.frameLength))
@@ -26,12 +36,18 @@ final class AudioSpectrumAnalyzer {
 
     private func prepare(maxFrames: Int, format: AudioStreamBasicDescription) {
         self.format = format
-        windowedSamples = Array(repeating: 0, count: max(maxFrames, 2))
+        let sampleCount = min(max(maxFrames, 2), 1_024)
+        windowedSamples = Array(repeating: 0, count: sampleCount)
         smoothedLevels = Array(repeating: 0.04, count: bandCount)
-    }
-
-    private func unprepare() {
-        windowedSamples.removeAll(keepingCapacity: false)
+        hannWindow = (0..<sampleCount).map { index in
+            Float(0.5 - 0.5 * cos(2 * .pi * Double(index) / Double(sampleCount - 1)))
+        }
+        let minimumFrequency = 45.0
+        let frequencyRatio = min(18_000.0, format.mSampleRate * 0.45) / minimumFrequency
+        coefficients = (0..<bandCount).map { band in
+            let centerFrequency = minimumFrequency * pow(frequencyRatio, (Double(band) + 0.5) / Double(bandCount))
+            return 2 * cos(2 * .pi * centerFrequency / format.mSampleRate)
+        }
     }
 
     private func analyze(bufferList: UnsafeMutablePointer<AudioBufferList>, frameCount: Int) {
@@ -72,32 +88,20 @@ final class AudioSpectrumAnalyzer {
             }
 
             sampleEnergy += Double(sample * sample)
-            let phase = Double(sampleIndex) / Double(sampleCount - 1)
-            let hannWindow = Float(0.5 - 0.5 * cos(2 * .pi * phase))
-            windowedSamples[sampleIndex] = sample * hannWindow
+            windowedSamples[sampleIndex] = sample * hannWindow[sampleIndex]
         }
 
         let sampleRate = format.mSampleRate
         guard sampleRate > 0 else { return }
 
-        let minimumFrequency = 45.0
-        let maximumFrequency = min(18_000.0, sampleRate * 0.45)
-        let frequencyRatio = maximumFrequency / minimumFrequency
         let signalRMS = sqrt(sampleEnergy / Double(sampleCount))
         let signalDecibels = 20 * log10(max(signalRMS, 0.000_000_1))
         let signalPresence = min(max((Float(signalDecibels) + 66) / 36, 0), 1)
-        var bandDecibels = Array(repeating: Float(-120), count: bandCount)
 
         for band in 0..<bandCount {
             let lowerProgress = Double(band) / Double(bandCount)
-            let upperProgress = Double(band + 1) / Double(bandCount)
-            let lowerFrequency = minimumFrequency * pow(frequencyRatio, lowerProgress)
-            let upperFrequency = minimumFrequency * pow(frequencyRatio, upperProgress)
-            let centerFrequency = sqrt(lowerFrequency * upperFrequency)
-
             let magnitude = goertzelMagnitude(
-                frequency: centerFrequency,
-                sampleRate: sampleRate,
+                coefficient: coefficients[band],
                 sampleCount: sampleCount
             )
             let decibels = 20 * log10(max(magnitude, 0.000_000_1))
@@ -179,9 +183,7 @@ final class AudioSpectrumAnalyzer {
         return sum / Float(channelsToRead)
     }
 
-    private func goertzelMagnitude(frequency: Double, sampleRate: Double, sampleCount: Int) -> Double {
-        let omega = 2 * Double.pi * frequency / sampleRate
-        let coefficient = 2 * cos(omega)
+    private func goertzelMagnitude(coefficient: Double, sampleCount: Int) -> Double {
         var previous = 0.0
         var previousPrevious = 0.0
 

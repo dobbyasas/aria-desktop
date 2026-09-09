@@ -1,8 +1,8 @@
 import AVFoundation
 import Foundation
 
-/// One output clock for the whole queue. Upcoming files are decoded before they are
-/// scheduled; a track-end notification only updates state and never starts the next sound.
+/// A small lookahead on one engine clock. Each track owns a player node so future
+/// audio can be replaced without stopping or rescheduling the audible track.
 @MainActor
 final class GaplessAudioPlayer {
     var onTrackChanged: ((Track) -> Void)?
@@ -10,16 +10,21 @@ final class GaplessAudioPlayer {
     var onFailure: ((String) -> Void)?
     var onPreparationChanged: ((String?) -> Void)?
 
+    typealias PrepareFile = @Sendable (URL, Double?) async throws -> URL
+
     private let engine: AVAudioEngine
-    private let node = AVAudioPlayerNode()
+    private let nodes = (0..<3).map { _ in AVAudioPlayerNode() }
     private let files = GaplessAudioFiles()
+    private let prepareFile: PrepareFile?
     private var format = GaplessAudioFiles.outputFormat
     private var loadTask: Task<Void, Never>?
+    private var prefetchTask: Task<Void, Never>?
+    private var prefetchTrack: Track?
     private var generation = UUID()
+    private var prefetchGeneration = UUID()
     private var sequence: [Track] = []
     private var sequenceIndex = 0
     private var scheduled: [ScheduledTrack] = []
-    private var nextSample: AVAudioFramePosition = 0
     private var initialOffset: TimeInterval = 0
     private var lastKnownElapsed: TimeInterval = 0
     private var lastDuration: TimeInterval = 0
@@ -27,16 +32,16 @@ final class GaplessAudioPlayer {
     private var pendingFailure: String?
     private var configurationObserver: NSObjectProtocol?
     private var hasTap = false
+    private var outputAnchor: AVAudioFramePosition?
     private(set) var currentTrack: Track?
     private(set) var isLoaded = false
     private var mode: RepeatMode = .off
-    private var preparesAlbum = false
 
-    var isReady: Bool { loadTask == nil && !scheduled.isEmpty }
+    var isReady: Bool { !scheduled.isEmpty }
+    var isPreparing: Bool { loadTask != nil || prefetchTask != nil }
 
-    var volume: Float {
-        get { node.volume }
-        set { node.volume = min(max(newValue, 0), 1) }
+    var volume: Float = 1 {
+        didSet { nodes.forEach { $0.volume = min(max(volume, 0), 1) } }
     }
 
     var duration: TimeInterval {
@@ -45,18 +50,21 @@ final class GaplessAudioPlayer {
 
     var elapsed: TimeInterval {
         guard let first = scheduled.first else { return initialOffset }
-        guard let sample = node.lastRenderTime.flatMap({ node.playerTime(forNodeTime: $0)?.sampleTime }) else {
+        guard let sample = playerSample(first.node) else {
             return max(lastKnownElapsed, Double(first.fileOffset) / format.sampleRate)
         }
         lastKnownElapsed = min(Double(first.file.length) / format.sampleRate,
-                               max(0, Double(sample - first.startSample + first.fileOffset) / format.sampleRate))
+                               max(0, Double(sample + first.fileOffset) / format.sampleRate))
         return lastKnownElapsed
     }
 
-    init(engine: AVAudioEngine = AVAudioEngine()) {
+    init(engine: AVAudioEngine = AVAudioEngine(), prepareFile: PrepareFile? = nil) {
         self.engine = engine
-        engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: format)
+        self.prepareFile = prepareFile
+        for node in nodes {
+            engine.attach(node)
+            engine.connect(node, to: engine.mainMixerNode, format: format)
+        }
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
         ) { [weak self] _ in
@@ -70,6 +78,7 @@ final class GaplessAudioPlayer {
 
     deinit {
         loadTask?.cancel()
+        prefetchTask?.cancel()
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
         engine.stop()
     }
@@ -83,34 +92,65 @@ final class GaplessAudioPlayer {
         initialOffset = max(0, offset)
         lastKnownElapsed = initialOffset
         currentTrack = track
-        preparesAlbum = Self.isAlbum(sequence)
-        onPreparationChanged?(preparesAlbum ? "Preparing album for seamless playback…" : "Buffering audio…")
         wantsPlayback = playing
         isLoaded = true
-        fillSchedule()
+        onPreparationChanged?("Buffering audio…")
+        let token = generation
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let url = track.streamURL else { throw GaplessAudioError.missingURL }
+                let preparedURL = try await self.prepare(url, sampleRate: nil)
+                try Task.checkCancellation()
+                guard self.generation == token else { return }
+                let file = try AVAudioFile(forReading: preparedURL)
+                if self.format != file.processingFormat {
+                    self.format = file.processingFormat
+                    for node in self.nodes {
+                        self.engine.disconnectNodeOutput(node)
+                        self.engine.connect(node, to: self.engine.mainMixerNode, format: self.format)
+                    }
+                }
+                self.append(track, file: file)
+                self.advanceSequence()
+                self.loadTask = nil
+                self.onPreparationChanged?(nil)
+                // The selected song is the only preparation on the startup path.
+                if self.wantsPlayback { self.startOutput() }
+                self.fillSchedule()
+            } catch {
+                guard self.generation == token, !Task.isCancelled else { return }
+                self.fail(error.localizedDescription)
+            }
+        }
     }
 
     func play() {
         wantsPlayback = true
         if isReady {
             startOutput()
-        } else if scheduled.isEmpty, loadTask == nil, let currentTrack {
+        } else if loadTask == nil, prefetchTask == nil, let currentTrack {
             load(currentTrack, queue: sequence, repeatMode: mode)
         }
     }
 
     func pause() {
+        lastKnownElapsed = elapsed
         wantsPlayback = false
-        node.pause()
+        engine.pause()
+        nodes.forEach { $0.pause() }
+        outputAnchor = nil
     }
 
     func stop() {
         generation = UUID()
         loadTask?.cancel()
         loadTask = nil
-        node.stop()
+        cancelPrefetch()
+        nodes.forEach { $0.stop() }
+        engine.stop()
         scheduled.removeAll()
-        nextSample = 0
+        outputAnchor = nil
         pendingFailure = nil
         wantsPlayback = false
         isLoaded = false
@@ -128,10 +168,38 @@ final class GaplessAudioPlayer {
 
     func updateQueue(_ queue: [Track], repeatMode: RepeatMode) {
         guard isLoaded, let currentTrack else { return }
-        let sameAudio = queue.map(\.streamURL) == sequence.map(\.streamURL)
-        guard queue.map(\.id) != sequence.map(\.id) || !sameAudio || mode != repeatMode else { return }
-        // Explicit queue edits invalidate scheduled future audio. Preserve the current position.
-        load(currentTrack, queue: queue, repeatMode: repeatMode, offset: elapsed, playing: wantsPlayback)
+        let updated = queue.contains(where: { $0.id == currentTrack.id }) ? queue : [currentTrack] + queue
+        guard !Self.sameAudio(updated, sequence) || mode != repeatMode else { return }
+
+        // A completion may be waiting on the main actor after audio crossed a boundary.
+        // Keep whichever track is actually rendering before invalidating future nodes.
+        reconcilePlaybackPosition()
+        guard let active = self.currentTrack else { return }
+        sequence = updated.contains(where: { $0.id == active.id }) ? updated : [active] + updated
+        mode = repeatMode
+        sequenceIndex = sequence.firstIndex(where: { $0.id == active.id }) ?? 0
+        pendingFailure = nil
+        if let first = scheduled.first {
+            advanceSequence()
+            var keepCount = 1
+            for entry in scheduled.dropFirst() {
+                guard sequence.indices.contains(sequenceIndex),
+                      Self.sameAudio(entry.track, sequence[sequenceIndex]) else { break }
+                keepCount += 1
+                advanceSequence()
+            }
+            let discarded = Array(scheduled.dropFirst(keepCount))
+            scheduled.removeLast(scheduled.count - keepCount)
+            discarded.forEach { $0.node.stop() }
+            lastKnownElapsed = min(lastKnownElapsed, Double(first.file.length) / format.sampleRate)
+        }
+        // Do not restart a download when an edit leaves the next requested song intact.
+        if let preparing = prefetchTrack,
+           !sequence.indices.contains(sequenceIndex) || !Self.sameAudio(preparing, sequence[sequenceIndex]) {
+            cancelPrefetch()
+        }
+        // Startup has its own task and keeps downloading the selected song through edits.
+        if loadTask == nil { fillSchedule() }
     }
 
     func setAnalysisEnabled(_ enabled: Bool, handler: @escaping (AVAudioPCMBuffer) -> Void) {
@@ -146,104 +214,139 @@ final class GaplessAudioPlayer {
         hasTap = true
     }
 
+    private func prepare(_ url: URL, sampleRate: Double?) async throws -> URL {
+        if let prepareFile { return try await prepareFile(url, sampleRate) }
+        return try await files.prepare(url, sampleRate: sampleRate)
+    }
+
+    private func cancelPrefetch() {
+        prefetchGeneration = UUID()
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        prefetchTrack = nil
+    }
+
     private func fillSchedule() {
-        guard loadTask == nil, pendingFailure == nil, isLoaded else { return }
+        guard loadTask == nil, prefetchTask == nil, pendingFailure == nil, isLoaded else { return }
         let token = generation
-        loadTask = Task { [weak self] in
+        let prefetchToken = prefetchGeneration
+        prefetchTask = Task { [weak self] in
             guard let self else { return }
             do {
-                if self.nextSample == 0, self.scheduled.isEmpty {
-                    guard let url = self.currentTrack?.streamURL else { throw GaplessAudioError.missingURL }
-                    let firstURL = try await self.files.prepare(url)
-                    try Task.checkCancellation()
-                    guard self.generation == token else { return }
-                    let firstFormat = try AVAudioFile(forReading: firstURL).processingFormat
-                    if self.format != firstFormat {
-                        self.engine.stop()
-                        self.engine.disconnectNodeOutput(self.node)
-                        self.engine.connect(self.node, to: self.engine.mainMixerNode, format: firstFormat)
-                        self.format = firstFormat
-                    }
-                }
-                if self.nextSample == 0, self.scheduled.isEmpty, self.preparesAlbum {
-                    let remaining = self.mode == .one ? [self.sequence[self.sequenceIndex]]
-                        : self.mode == .all ? self.sequence : Array(self.sequence[self.sequenceIndex...])
-                    await self.files.retainOnly(self.sequence.compactMap(\.streamURL))
-                    for (index, track) in remaining.enumerated() {
-                        guard let url = track.streamURL else { throw GaplessAudioError.missingURL }
-                        self.onPreparationChanged?("Preparing album · \(index + 1) of \(remaining.count)")
-                        _ = try await self.files.prepare(url, sampleRate: self.format.sampleRate)
-                        try Task.checkCancellation()
-                        guard self.generation == token else { return }
-                    }
-                }
-                let scheduleLimit = self.preparesAlbum && self.mode != .one ? max(self.sequence.count + 1, 3) : 3
-                while self.scheduled.count < scheduleLimit, self.sequence.indices.contains(self.sequenceIndex) {
+                while self.scheduled.count < self.nodes.count, self.sequence.indices.contains(self.sequenceIndex) {
                     let track = self.sequence[self.sequenceIndex]
+                    self.prefetchTrack = track
                     guard let url = track.streamURL else { throw GaplessAudioError.missingURL }
-                    let preparedURL = try await self.files.prepare(url, sampleRate: self.format.sampleRate)
+                    let preparedURL = try await self.prepare(url, sampleRate: self.format.sampleRate)
                     try Task.checkCancellation()
-                    guard self.generation == token else { return }
+                    guard self.generation == token, self.prefetchGeneration == prefetchToken else { return }
                     let file = try AVAudioFile(forReading: preparedURL)
-                    let offset = self.scheduled.isEmpty && self.nextSample == 0
-                        ? AVAudioFramePosition(min(self.initialOffset * self.format.sampleRate, Double(max(0, file.length - 1)))) : 0
-                    let entry = ScheduledTrack(track: track, file: file, fileOffset: offset,
-                                               startSample: self.nextSample)
-                    self.scheduled.append(entry)
-                    self.nextSample += file.length - offset
-                    self.node.scheduleSegment(
-                        file, startingFrame: offset, frameCount: AVAudioFrameCount(file.length - offset),
-                        at: AVAudioTime(sampleTime: entry.startSample, atRate: self.format.sampleRate),
-                        // Device-playback callbacks are unavailable during offline rendering.
-                        completionCallbackType: self.engine.isInManualRenderingMode ? .dataRendered : .dataPlayedBack
-                    ) { [weak self] _ in
-                        Task { @MainActor in self?.finished(entry.id, generation: token) }
-                    }
-                    switch self.mode {
-                    case .one: break
-                    case .all: self.sequenceIndex = (self.sequenceIndex + 1) % self.sequence.count
-                    case .off: self.sequenceIndex += 1
-                    }
+                    self.append(track, file: file)
+                    self.advanceSequence()
+                    self.onPreparationChanged?(nil)
+                    if self.wantsPlayback { self.startOutput() }
                 }
-                guard self.generation == token else { return }
-                self.loadTask = nil
-                self.onPreparationChanged?(nil)
-                if self.wantsPlayback { self.startOutput() }
-                let retained = self.preparesAlbum ? self.sequence.compactMap(\.streamURL)
-                    : self.scheduled.compactMap { $0.track.streamURL }
-                await self.files.retainOnly(retained)
+                self.prefetchTask = nil
+                self.prefetchTrack = nil
+                await self.files.retainOnly(self.scheduled.compactMap { $0.track.streamURL })
             } catch {
-                guard self.generation == token, !Task.isCancelled else { return }
-                self.loadTask = nil
+                guard self.generation == token, self.prefetchGeneration == prefetchToken, !Task.isCancelled else { return }
+                self.prefetchTask = nil
+                self.prefetchTrack = nil
                 self.pendingFailure = error.localizedDescription
-                self.onPreparationChanged?(nil)
-                if self.scheduled.isEmpty {
-                    self.fail(error.localizedDescription)
-                } else if self.wantsPlayback {
-                    // Let already buffered music finish; report the failed next track at its boundary.
-                    self.startOutput()
-                }
+                // A failed future download must not prevent the buffered music from playing.
+                if self.scheduled.isEmpty { self.fail(error.localizedDescription) }
             }
         }
     }
 
+    private func append(_ track: Track, file: AVAudioFile) {
+        guard let node = nodes.first(where: { candidate in !scheduled.contains { $0.node === candidate } }) else { return }
+        let offset = scheduled.isEmpty
+            ? AVAudioFramePosition(min(initialOffset * format.sampleRate, Double(max(0, file.length - 1)))) : 0
+        let entry = ScheduledTrack(track: track, file: file, node: node, fileOffset: offset,
+                                   startSample: scheduled.last?.endSample ?? 0)
+        scheduled.append(entry)
+        scheduleSegment(entry)
+    }
+
+    private func scheduleSegment(_ entry: ScheduledTrack) {
+        let token = generation
+        let scheduleID = UUID()
+        let entryID = entry.id
+        entry.scheduleID = scheduleID
+        entry.node.scheduleSegment(
+            entry.file, startingFrame: entry.fileOffset,
+            frameCount: AVAudioFrameCount(entry.file.length - entry.fileOffset), at: nil,
+            completionCallbackType: engine.isInManualRenderingMode ? .dataRendered : .dataPlayedBack
+        ) { [weak self] _ in
+            Task { @MainActor in self?.finished(entryID, generation: token, scheduleID: scheduleID) }
+        }
+    }
+
+    private func advanceSequence() {
+        switch mode {
+        case .one: break
+        case .all: sequenceIndex = (sequenceIndex + 1) % sequence.count
+        case .off: sequenceIndex += 1
+        }
+    }
+
     private func startOutput() {
-        guard !scheduled.isEmpty else { return }
+        guard let first = scheduled.first else { return }
         do {
-            if !engine.isRunning { try engine.start() }
-            if !node.isPlaying { node.play() }
+            if !engine.isRunning {
+                // Resume only the current node's timeline; future nodes are reset below.
+                let played = max(0, playerSample(first.node) ?? 0)
+                try engine.start()
+                let now = engine.isInManualRenderingMode ? engine.manualRenderingSampleTime
+                    : AVAudioFramePosition((first.node.lastRenderTime?.sampleTime ?? 0))
+                // A short device lead lets all nodes share an exact start frame.
+                let lead = engine.isInManualRenderingMode ? 0 : AVAudioFramePosition(format.sampleRate * 0.02)
+                outputAnchor = now + lead - first.startSample - played
+                first.node.play(at: AVAudioTime(sampleTime: now + lead, atRate: format.sampleRate))
+                for entry in scheduled.dropFirst() {
+                    // Pausing a node before its future start must not lose its start delay.
+                    entry.node.stop()
+                    scheduleSegment(entry)
+                    playUpcoming(entry)
+                }
+            } else {
+                for entry in scheduled where !entry.node.isPlaying { playUpcoming(entry) }
+            }
         } catch {
             fail(error.localizedDescription)
         }
     }
 
-    private func finished(_ id: UUID, generation token: UUID) {
-        guard generation == token, let index = scheduled.firstIndex(where: { $0.id == id }) else { return }
+    private func playUpcoming(_ entry: ScheduledTrack) {
+        guard let first = scheduled.first, let outputAnchor else { return }
+        let time = first.node.nodeTime(forPlayerTime: AVAudioTime(
+            sampleTime: entry.startSample - first.startSample, atRate: format.sampleRate
+        )) ?? AVAudioTime(sampleTime: outputAnchor + entry.startSample, atRate: format.sampleRate)
+        entry.node.play(at: time)
+    }
+
+    private func playerSample(_ node: AVAudioPlayerNode) -> AVAudioFramePosition? {
+        node.lastRenderTime.flatMap { node.playerTime(forNodeTime: $0)?.sampleTime }
+    }
+
+    private func reconcilePlaybackPosition() {
+        guard let first = scheduled.first, let sample = playerSample(first.node),
+              let last = scheduled.last(where: { $0.endSample <= first.startSample + sample }) else { return }
+        finished(last.id, generation: generation)
+    }
+
+    private func finished(_ id: UUID, generation token: UUID, scheduleID: UUID? = nil) {
+        guard generation == token, let index = scheduled.firstIndex(where: { $0.id == id }),
+              scheduleID == nil || scheduled[index].scheduleID == scheduleID else { return }
         let completed = scheduled[index]
-        // Completion tasks may arrive out of order when the main thread is busy.
+        let retired = Array(scheduled.prefix(index + 1))
         scheduled.removeFirst(index + 1)
+        retired.forEach { $0.node.stop() }
         lastDuration = Double(completed.file.length) / format.sampleRate
         lastKnownElapsed = 0
+        initialOffset = 0
         if let next = scheduled.first {
             currentTrack = next.track
             onTrackChanged?(next.track)
@@ -251,19 +354,18 @@ final class GaplessAudioPlayer {
         } else if let pendingFailure {
             fail(pendingFailure)
         } else if sequence.indices.contains(sequenceIndex) {
-            // A network stall is a buffering condition, never a reason to skip part of a song.
             let next = sequence[sequenceIndex]
             currentTrack = next
+            outputAnchor = nil
+            engine.pause()
             onPreparationChanged?("Buffering audio…")
-            initialOffset = 0
-            node.stop()
-            nextSample = 0
             onTrackChanged?(next)
             fillSchedule()
         } else {
             initialOffset = Double(completed.file.length) / format.sampleRate
             wantsPlayback = false
-            node.stop()
+            outputAnchor = nil
+            engine.stop()
             onFinished?()
         }
     }
@@ -273,22 +375,32 @@ final class GaplessAudioPlayer {
         onFailure?(message)
     }
 
-    static func isAlbum(_ tracks: [Track]) -> Bool {
-        guard let first = tracks.first, tracks.count > 1 else { return false }
-        if let id = first.serverAlbumID, !id.isEmpty {
-            return tracks.allSatisfy { $0.serverAlbumID == id }
-        }
-        let name = first.album.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name != "Unknown Album" else { return false }
-        return tracks.allSatisfy { $0.album == first.album && $0.year == first.year }
+    private static func sameAudio(_ lhs: Track, _ rhs: Track) -> Bool {
+        lhs.id == rhs.id && lhs.streamURL == rhs.streamURL
     }
 
-    private struct ScheduledTrack {
+    private static func sameAudio(_ lhs: [Track], _ rhs: [Track]) -> Bool {
+        lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { sameAudio($0, $1) }
+    }
+
+    private final class ScheduledTrack {
         let id = UUID()
+        var scheduleID = UUID()
         let track: Track
         let file: AVAudioFile
+        let node: AVAudioPlayerNode
         let fileOffset: AVAudioFramePosition
         let startSample: AVAudioFramePosition
+        var endSample: AVAudioFramePosition { startSample + file.length - fileOffset }
+
+        init(track: Track, file: AVAudioFile, node: AVAudioPlayerNode,
+             fileOffset: AVAudioFramePosition, startSample: AVAudioFramePosition) {
+            self.track = track
+            self.file = file
+            self.node = node
+            self.fileOffset = fileOffset
+            self.startSample = startSample
+        }
     }
 }
 

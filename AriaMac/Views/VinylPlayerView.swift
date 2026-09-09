@@ -1,7 +1,8 @@
 import SwiftUI
+import QuartzCore
 
 struct FullscreenPlayerView: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @State private var artworkPalette: ArtworkPalette?
     @State private var showsLyrics = true
     @State private var expandsLyrics = false
@@ -66,7 +67,7 @@ struct FullscreenPlayerView: View {
                 }
                 .frame(minWidth: 520, minHeight: 540)
                 .background(Color.ariaBackground)
-                .environmentObject(player)
+                .environment(player)
             }
         }
     }
@@ -172,9 +173,9 @@ private struct VinylRecordView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let track: Track?
     let isPlaying: Bool
-    @State private var rotation = VinylRotation()
+    @Environment(\.isPlaybackWindowVisible) private var isWindowVisible
 
-    private var isSpinning: Bool { isPlaying && track != nil && !reduceMotion }
+    private var isSpinning: Bool { isPlaying && track != nil && !reduceMotion && isWindowVisible }
 
     var body: some View {
         GeometryReader { geometry in
@@ -185,10 +186,7 @@ private struct VinylRecordView: View {
                     .padding(-7)
                     .overlay(Circle().stroke(.white.opacity(0.07), lineWidth: 1).padding(-7))
 
-                TimelineView(.animation(minimumInterval: 1 / 30, paused: !isSpinning)) { timeline in
-                    record(diameter: diameter)
-                        .rotationEffect(.degrees(rotation.degrees(at: timeline.date)))
-                }
+                RotatingVinylContent(content: record(diameter: diameter), isSpinning: isSpinning)
 
                 // Light stays fixed over the moving grooves, like a real turntable.
                 Circle()
@@ -209,10 +207,6 @@ private struct VinylRecordView: View {
             }
             .shadow(color: .black.opacity(0.45), radius: 22, x: 0, y: 18)
         }
-        .onChange(of: isSpinning, initial: true) { _, spinning in
-            rotation.setSpinning(spinning, at: .now)
-        }
-        .onDisappear { rotation.setSpinning(false, at: .now) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(track.map { "Vinyl record, \($0.album)" } ?? "Empty turntable")
         .accessibilityValue(track == nil ? "Ready" : isPlaying ? "Playing" : "Paused")
@@ -251,7 +245,8 @@ private struct VinylRecordView: View {
 }
 
 private struct VinylQueueView: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
+    @StateObject private var dragState = QueueDragState()
     let recordDiameter: CGFloat
     @Namespace private var scrollSpace
     @State private var scrollTarget: UUID?
@@ -289,7 +284,12 @@ private struct VinylQueueView: View {
                                 let midY = rowGeometry.frame(in: .named(scrollSpace)).midY + 36
                                 let inset = VinylQueueArc.leadingInset(rowMidY: midY, diameter: recordDiameter)
                                 VinylQueueRow(track: track, index: index)
-                                    .queueReorderable(trackID: track.id, enabled: player.canMoveQueuedTrack(track.id))
+                                    .queueReorderable(
+                                        trackID: track.id,
+                                        enabled: player.canMoveQueuedTrack(track.id),
+                                        dragState: dragState,
+                                        spacing: 4
+                                    )
                                     .padding(.leading, inset)
                             }
                             .frame(height: 52)
@@ -297,7 +297,7 @@ private struct VinylQueueView: View {
                         }
                     }
                     .scrollTargetLayout()
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 4)
                 }
                 .coordinateSpace(name: scrollSpace)
                 .scrollIndicators(.hidden)
@@ -315,7 +315,7 @@ private struct VinylQueueView: View {
 }
 
 private struct VinylQueueRow: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @State private var isHovering = false
     let track: Track
     let index: Int
@@ -381,7 +381,7 @@ private struct VinylQueueRow: View {
 }
 
 private struct VinylPlayerControls: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @Binding var showsLyrics: Bool
 
     var body: some View {
@@ -409,7 +409,7 @@ private struct VinylPlayerControls: View {
             utilityControls
 
             if player.isAudioVisualizerEnabled {
-                AudioVisualizer(levels: player.spectrumLevels, hasTrack: player.currentTrack != nil)
+                PlaybackAudioVisualizer()
                     .frame(height: 22)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -482,7 +482,7 @@ private struct VinylPlayerControls: View {
             Image(systemName: player.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.4))
-            Slider(value: $player.volume, in: 0...1)
+            Slider(value: Binding(get: { player.volume }, set: { player.volume = $0 }), in: 0...1)
                 .tint(.white.opacity(0.65))
                 .controlSize(.mini)
                 .frame(minWidth: 45, maxWidth: 90)
@@ -501,5 +501,58 @@ private struct VinylPlayerControls: View {
         .buttonStyle(.plain)
         .help(label)
         .accessibilityLabel(label)
+    }
+}
+
+/// Core Animation rotates the existing rendered record; SwiftUI does no per-frame layout.
+private struct RotatingVinylContent<Content: View>: NSViewRepresentable {
+    let content: Content
+    let isSpinning: Bool
+
+    func makeNSView(context: Context) -> RotatingView {
+        let view = RotatingView(rootView: content)
+        view.wantsLayer = true
+        return view
+    }
+
+    func updateNSView(_ view: RotatingView, context: Context) {
+        view.rootView = content
+        view.setSpinning(isSpinning)
+    }
+
+    static func dismantleNSView(_ view: RotatingView, coordinator: ()) {
+        view.setSpinning(false)
+    }
+
+    final class RotatingView: NSHostingView<Content> {
+        private var rotation = VinylRotation()
+        private var spinning = false
+
+        override func layout() {
+            super.layout()
+            // Keep rotation centered when the player window is resized.
+            layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            layer?.position = CGPoint(x: frame.midX, y: frame.midY)
+        }
+
+        func setSpinning(_ value: Bool) {
+            guard value != spinning, let layer else { return }
+            spinning = value
+            rotation.setSpinning(value, at: .now)
+            let angle = rotation.degrees(at: .now) * .pi / 180
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.removeAnimation(forKey: "vinylSpin")
+            layer.setValue(angle, forKeyPath: "transform.rotation.z")
+            if value {
+                let animation = CABasicAnimation(keyPath: "transform.rotation.z")
+                animation.fromValue = angle
+                animation.toValue = angle + 2 * .pi
+                animation.duration = 15
+                animation.repeatCount = .infinity
+                layer.add(animation, forKey: "vinylSpin")
+            }
+            CATransaction.commit()
+        }
     }
 }

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ArtworkView: View {
+    @Environment(\.displayScale) private var displayScale
     @State private var cachedArtwork: NSImage?
 
     let track: Track
@@ -9,14 +10,14 @@ struct ArtworkView: View {
 
     var body: some View {
         ZStack {
-            fallbackArtwork
-
             if let cachedArtwork {
                 Image(nsImage: cachedArtwork)
                     .resizable()
                     .scaledToFill()
                     .frame(width: size, height: size)
                     .transition(.opacity)
+            } else {
+                fallbackArtwork
             }
         }
         .frame(width: size, height: size)
@@ -25,7 +26,7 @@ struct ArtworkView: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(.white.opacity(0.12), lineWidth: 1)
         )
-        .task(id: track.artworkURL) {
+        .task(id: "\(track.artworkURL?.absoluteString ?? "")|\(pixelSize)") {
             await loadArtwork()
         }
         .accessibilityLabel("\(track.title) artwork")
@@ -46,6 +47,8 @@ struct ArtworkView: View {
         }
     }
 
+    private var pixelSize: Int { AriaArtworkCache.pixelSize(for: size * displayScale) }
+
     private func loadArtwork() async {
         cachedArtwork = nil
 
@@ -53,7 +56,7 @@ struct ArtworkView: View {
             return
         }
 
-        guard let image = await AriaArtworkCache.shared.image(for: artworkURL) else {
+        guard let image = await AriaArtworkCache.shared.image(for: artworkURL, maxPixelSize: pixelSize) else {
             return
         }
 

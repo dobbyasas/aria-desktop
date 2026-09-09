@@ -5,40 +5,78 @@ private extension UTType {
     static let ariaQueueTrack = UTType(exportedAs: "com.tofi.aria.mac.queue-track", conformingTo: .data)
 }
 
+final class QueueDragState: ObservableObject {
+    @Published var sourceID: UUID?
+    @Published var targetID: UUID?
+}
+
 extension View {
-    func queueReorderable(trackID: UUID, enabled: Bool) -> some View {
-        modifier(QueueReorderingModifier(trackID: trackID, enabled: enabled))
+    func queueReorderable(trackID: UUID, enabled: Bool, dragState: QueueDragState, spacing: CGFloat) -> some View {
+        modifier(QueueReorderingModifier(dragState: dragState, trackID: trackID, enabled: enabled, spacing: spacing))
     }
 }
 
 private struct QueueReorderingModifier: ViewModifier {
-    @EnvironmentObject private var player: MacPlayerViewModel
-    @State private var isDropTarget = false
+    @Environment(MacPlayerViewModel.self) private var player
+    @ObservedObject var dragState: QueueDragState
     let trackID: UUID
     let enabled: Bool
+    let spacing: CGFloat
+
+    private var movesDown: Bool {
+        guard let sourceIndex = player.queue.firstIndex(where: { $0.id == dragState.sourceID }),
+              let targetIndex = player.queue.firstIndex(where: { $0.id == trackID }) else { return false }
+        return sourceIndex < targetIndex
+    }
+
+    private var isDropTarget: Binding<Bool> {
+        Binding(
+            get: { dragState.targetID == trackID },
+            set: { targeted in
+                if targeted {
+                    dragState.targetID = trackID
+                } else if dragState.targetID == trackID {
+                    dragState.targetID = nil
+                }
+            }
+        )
+    }
 
     func body(content: Content) -> some View {
         if enabled {
             content
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7)
-                        .strokeBorder(Color.ariaAccent.opacity(isDropTarget ? 0.85 : 0), lineWidth: 2)
-                        .allowsHitTesting(false)
+                .overlay(alignment: movesDown ? .bottom : .top) {
+                    if dragState.targetID == trackID,
+                       let sourceID = dragState.sourceID, sourceID != trackID,
+                       player.canMoveQueuedTrack(sourceID) {
+                        // The move lands after the target when dragging down,
+                        // and before it when dragging up. Center the marker in
+                        // that gap without covering either song.
+                        Capsule()
+                            .fill(Color.ariaAccent)
+                            .frame(height: 2)
+                            .offset(y: (movesDown ? 1 : -1) * (spacing / 2 + 1))
+                            .allowsHitTesting(false)
+                    }
                 }
                 .onDrag {
-                    NSItemProvider(item: Data(trackID.uuidString.utf8) as NSData,
-                                   typeIdentifier: UTType.ariaQueueTrack.identifier)
+                    dragState.sourceID = trackID
+                    dragState.targetID = nil
+                    return NSItemProvider(item: Data(trackID.uuidString.utf8) as NSData,
+                                          typeIdentifier: UTType.ariaQueueTrack.identifier)
                 }
                 // Accept the source's native transfer operation; requesting a
                 // move proposal can make macOS reject SwiftUI onDrag sources.
-                .onDrop(of: [.ariaQueueTrack], isTargeted: $isDropTarget, perform: performDrop)
-                .accessibilityHint("Drag onto another upcoming song to change the queue order")
+                .onDrop(of: [.ariaQueueTrack], isTargeted: isDropTarget, perform: performDrop)
+                .accessibilityHint("Drag to the highlighted gap to change the queue order")
         } else {
             content
         }
     }
 
     private func performDrop(_ providers: [NSItemProvider]) -> Bool {
+        dragState.sourceID = nil
+        dragState.targetID = nil
         guard let provider = providers.first else { return false }
 
         // Commit once on release so hovering (or cancelling a drag) never

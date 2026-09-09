@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import Observation
 import Foundation
 
 @MainActor
@@ -112,45 +113,53 @@ struct DownloadQueueItem: Identifiable {
 }
 
 @MainActor
-final class MacPlayerViewModel: ObservableObject {
-    @Published private(set) var catalog: [Track] = []
-    @Published private(set) var albums: [AriaAlbum] = []
-    @Published private(set) var playlists: [AriaPlaylist] = []
-    @Published private(set) var playlistLastPlayedAt: [UUID: TimeInterval] = [:]
-    @Published private(set) var queue: [Track] = [] {
+@Observable
+final class MacPlayerViewModel {
+    private(set) var catalog: [Track] = [] {
+        didSet {
+            tracksByPlaybackID = Dictionary(catalog.map { (remotePlaybackID(for: $0), $0) }, uniquingKeysWith: { _, latest in latest })
+        }
+    }
+    private(set) var albums: [AriaAlbum] = []
+    private(set) var playlists: [AriaPlaylist] = []
+    private(set) var playlistLastPlayedAt: [UUID: TimeInterval] = [:]
+    private(set) var queue: [Track] = [] {
+        didSet {
+            playbackQueueIDs = queue.map(remotePlaybackID)
+            scheduleAudioQueueUpdate()
+        }
+    }
+    private(set) var isCatalogLoading = false
+    private(set) var catalogErrorMessage: String?
+    private(set) var playbackErrorMessage: String?
+    private(set) var playbackPreparationMessage: String?
+    private(set) var playbackSessionRole: PlaybackSessionRole?
+    private(set) var playbackHostName: String?
+    private(set) var playbackDevices: [PlaybackDevice] = []
+    private(set) var playbackSessionError: String?
+    private(set) var isSharedPlaybackSession = true
+    private(set) var downloadJob: AriaDownloadJob?
+    private(set) var downloadQueue: [DownloadQueueItem] = []
+    private(set) var isDownloadStarting = false
+    private(set) var downloadErrorMessage: String?
+    private(set) var youtubeMusicResults: [YouTubeMusicAlbumResult] = []
+    private(set) var youtubeMusicSongResults: [YouTubeMusicSongResult] = []
+    private(set) var youtubeMusicPlaylistResults: [YouTubeMusicPlaylistResult] = []
+    private(set) var isSearchingYouTubeMusic = false
+    private(set) var youtubeMusicSearchError: String?
+    var presentedArtist: ArtistSelection?
+    var currentTrack: Track?
+    var elapsed: TimeInterval = 0
+    var isPlaying = false
+    private(set) var isLyricsPresented = false
+    private(set) var isAudioVisualizerEnabled = false
+    private(set) var spectrumLevels = Array(repeating: Float(0.04), count: 36)
+    var isShuffleEnabled = false
+    var repeatMode: RepeatMode = .off {
         didSet { scheduleAudioQueueUpdate() }
     }
-    @Published private(set) var isCatalogLoading = false
-    @Published private(set) var catalogErrorMessage: String?
-    @Published private(set) var playbackErrorMessage: String?
-    @Published private(set) var playbackPreparationMessage: String?
-    @Published private(set) var playbackSessionRole: PlaybackSessionRole?
-    @Published private(set) var playbackHostName: String?
-    @Published private(set) var playbackDevices: [PlaybackDevice] = []
-    @Published private(set) var playbackSessionError: String?
-    @Published private(set) var isSharedPlaybackSession = true
-    @Published private(set) var downloadJob: AriaDownloadJob?
-    @Published private(set) var downloadQueue: [DownloadQueueItem] = []
-    @Published private(set) var isDownloadStarting = false
-    @Published private(set) var downloadErrorMessage: String?
-    @Published private(set) var youtubeMusicResults: [YouTubeMusicAlbumResult] = []
-    @Published private(set) var youtubeMusicSongResults: [YouTubeMusicSongResult] = []
-    @Published private(set) var youtubeMusicPlaylistResults: [YouTubeMusicPlaylistResult] = []
-    @Published private(set) var isSearchingYouTubeMusic = false
-    @Published private(set) var youtubeMusicSearchError: String?
-    @Published var presentedArtist: ArtistSelection?
-    @Published var currentTrack: Track?
-    @Published var elapsed: TimeInterval = 0
-    @Published var isPlaying = false
-    @Published private(set) var isLyricsPresented = false
-    @Published private(set) var isAudioVisualizerEnabled = false
-    @Published private(set) var spectrumLevels = Array(repeating: Float(0.04), count: 36)
-    @Published var isShuffleEnabled = false
-    @Published var repeatMode: RepeatMode = .off {
-        didSet { scheduleAudioQueueUpdate() }
-    }
-    @Published private(set) var metadataEditorSession: TrackMetadataEditorSession?
-    @Published var volume: Double = 0.86 {
+    private(set) var metadataEditorSession: TrackMetadataEditorSession?
+    var volume: Double = 0.86 {
         didSet {
             let boundedVolume = min(max(volume, 0), 1)
             if isRemoteController, !isApplyingPlaybackSync {
@@ -161,24 +170,46 @@ final class MacPlayerViewModel: ObservableObject {
         }
     }
 
+    private(set) var hasVisiblePlaybackWindow = false
+    @ObservationIgnored private var visiblePlaybackWindows = Set<UUID>()
+    @ObservationIgnored private var activeSpectrumViews = Set<UUID>()
+    @ObservationIgnored private var playbackQueueIDs: [String] = []
+    @ObservationIgnored private var tracksByPlaybackID: [String: Track] = [:]
+    private let playbackDeviceName = Host.current().localizedName ?? "Mac"
+
+    func setPlaybackWindowVisible(_ visible: Bool, id: UUID) {
+        if visible { visiblePlaybackWindows.insert(id) } else { visiblePlaybackWindows.remove(id) }
+        let hasVisibleWindow = !visiblePlaybackWindows.isEmpty
+        guard hasVisiblePlaybackWindow != hasVisibleWindow else { return }
+        hasVisiblePlaybackWindow = hasVisibleWindow
+        configureSpectrumAnalysis()
+        if isPlaying, !isRemoteController { startTimer() }
+    }
+
+    func setSpectrumViewActive(_ active: Bool, id: UUID) {
+        let wasActive = !activeSpectrumViews.isEmpty
+        if active { activeSpectrumViews.insert(id) } else { activeSpectrumViews.remove(id) }
+        if wasActive != !activeSpectrumViews.isEmpty { configureSpectrumAnalysis() }
+    }
+
     private let serverClient: AriaServerClient
-    private var audioPlayer: GaplessAudioPlayer?
-    private var audioQueueUpdateTask: Task<Void, Never>?
-    private var timer: AnyCancellable?
-    private var audioSpectrumAnalyzer: AudioSpectrumAnalyzer?
-    private var downloadPollTask: Task<Void, Never>?
-    private var playbackSyncTask: Task<Void, Never>?
-    private var volumeCommandTask: Task<Void, Never>?
-    private var orderedQueue: [Track] = []
-    private var manuallyQueuedTrackIDs: [UUID] = []
+    @ObservationIgnored private var audioPlayer: GaplessAudioPlayer?
+    @ObservationIgnored private var audioQueueUpdateTask: Task<Void, Never>?
+    @ObservationIgnored private var timer: AnyCancellable?
+    @ObservationIgnored private var audioSpectrumAnalyzer: AudioSpectrumAnalyzer?
+    @ObservationIgnored private var downloadPollTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackSyncTask: Task<Void, Never>?
+    @ObservationIgnored private var volumeCommandTask: Task<Void, Never>?
+    @ObservationIgnored private var orderedQueue: [Track] = []
+    @ObservationIgnored private var manuallyQueuedTrackIDs: [UUID] = []
     private let youtubeMusicSearchClient = YouTubeMusicSearchClient()
     private let playbackDeviceID = MacPlayerViewModel.stablePlaybackDeviceID()
-    private var playbackSessionID = MacPlayerViewModel.savedPlaybackSessionID()
-    private var lastPlaybackCommandID = 0
-    private var lastSentPlaybackQueueIDs: [String] = []
-    private var isApplyingPlaybackSync = false
-    private var isSyncingPlayback = false
-    private var shouldStartAudioWhenBecomingHost = false
+    @ObservationIgnored private var playbackSessionID = MacPlayerViewModel.savedPlaybackSessionID()
+    @ObservationIgnored private var lastPlaybackCommandID = 0
+    @ObservationIgnored private var lastSentPlaybackQueueIDs: [String] = []
+    @ObservationIgnored private var isApplyingPlaybackSync = false
+    @ObservationIgnored private var isSyncingPlayback = false
+    @ObservationIgnored private var shouldStartAudioWhenBecomingHost = false
 
     private static let spectrumBandCount = 36
     private static let playlistHistoryDefaultsKey = "aria.mac.playlistLastPlayedAt"
@@ -190,9 +221,10 @@ final class MacPlayerViewModel: ObservableObject {
         count: spectrumBandCount
     )
 
-    init(serverClient: AriaServerClient = AriaServerClient()) {
+    init(serverClient: AriaServerClient = AriaServerClient(), startsBackgroundTasks: Bool = true) {
         self.serverClient = serverClient
         playlistLastPlayedAt = Self.loadPlaylistHistory()
+        guard startsBackgroundTasks else { return }
 
         Task {
             await youtubeMusicSearchClient.prepare()
@@ -1227,7 +1259,7 @@ final class MacPlayerViewModel: ObservableObject {
 
     private func startTimer() {
         timer?.cancel()
-        timer = Timer.publish(every: 0.5, on: .main, in: .common)
+        timer = Timer.publish(every: hasVisiblePlaybackWindow ? 0.5 : 2, tolerance: 0.1, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self, isPlaying else { return }
@@ -1255,8 +1287,10 @@ final class MacPlayerViewModel: ObservableObject {
     private func configureSpectrumAnalysis() {
         audioSpectrumAnalyzer = nil
         resetSpectrum()
+        let enabled = isAudioVisualizerEnabled && hasVisiblePlaybackWindow
+            && !activeSpectrumViews.isEmpty && !isRemoteController
         let analyzer = AudioSpectrumAnalyzer(bandCount: Self.spectrumBandCount)
-        if isAudioVisualizerEnabled {
+        if enabled {
             audioSpectrumAnalyzer = analyzer
             analyzer.onLevels = { [weak self, weak analyzer] levels in
                 Task { @MainActor in
@@ -1266,7 +1300,7 @@ final class MacPlayerViewModel: ObservableObject {
                 }
             }
         }
-        audioPlayer?.setAnalysisEnabled(isAudioVisualizerEnabled) { buffer in
+        audioPlayer?.setAnalysisEnabled(enabled) { buffer in
             analyzer.analyze(buffer)
         }
     }
@@ -1375,9 +1409,17 @@ final class MacPlayerViewModel: ObservableObject {
         playbackSyncTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.syncPlaybackSession()
-                try? await Task.sleep(for: .milliseconds(500))
+                // Keep controls responsive; a lone hidden/paused host only needs a heartbeat.
+                let interval = self?.playbackPollInterval ?? 2
+                try? await Task.sleep(for: .seconds(interval))
             }
         }
+    }
+
+    private var playbackPollInterval: Double {
+        if playbackSessionError != nil { return 2 }
+        if isRemoteController || playbackDevices.count > 1 { return 0.5 }
+        return hasVisiblePlaybackWindow && isPlaying ? 1 : 2
     }
 
     private func syncPlaybackSession() async {
@@ -1385,11 +1427,11 @@ final class MacPlayerViewModel: ObservableObject {
         isSyncingPlayback = true
         defer { isSyncingPlayback = false }
 
-        let queueIDs = queue.map(remotePlaybackID)
+        let queueIDs = playbackQueueIDs
         let includesQueue = playbackSessionRole != .controller && queueIDs != lastSentPlaybackQueueIDs
         let request = PlaybackSyncRequest(
             deviceID: playbackDeviceID,
-            deviceName: Host.current().localizedName ?? "Mac",
+            deviceName: playbackDeviceName,
             platform: "macOS",
             sessionID: playbackSessionID,
             lastCommandID: lastPlaybackCommandID,
@@ -1399,11 +1441,11 @@ final class MacPlayerViewModel: ObservableObject {
         do {
             let previousRole = playbackSessionRole
             let response = try await serverClient.syncPlayback(request)
-            playbackSessionError = nil
-            playbackSessionRole = response.role
-            playbackHostName = response.hostName
-            playbackDevices = response.devices
-            isSharedPlaybackSession = response.isShared
+            if playbackSessionError != nil { playbackSessionError = nil }
+            if playbackSessionRole != response.role { playbackSessionRole = response.role }
+            if playbackHostName != response.hostName { playbackHostName = response.hostName }
+            if playbackDevices != response.devices { playbackDevices = response.devices }
+            if isSharedPlaybackSession != response.isShared { isSharedPlaybackSession = response.isShared }
             if response.role == .host, includesQueue {
                 lastSentPlaybackQueueIDs = queueIDs
             }
@@ -1421,7 +1463,9 @@ final class MacPlayerViewModel: ObservableObject {
                 applyPlaybackCommands(response.commands)
             }
         } catch {
-            playbackSessionError = error.localizedDescription
+            if playbackSessionError != error.localizedDescription {
+                playbackSessionError = error.localizedDescription
+            }
         }
     }
 
@@ -1429,7 +1473,7 @@ final class MacPlayerViewModel: ObservableObject {
         PlaybackStateUpdate(
             trackID: currentTrack.map(remotePlaybackID),
             queueTrackIDs: queueIDs,
-            elapsed: elapsed,
+            elapsed: isRemoteController ? elapsed : (audioPlayer?.elapsed ?? elapsed),
             isPlaying: isPlaying,
             isShuffleEnabled: isShuffleEnabled,
             repeatMode: repeatMode.rawValue,
@@ -1438,7 +1482,7 @@ final class MacPlayerViewModel: ObservableObject {
     }
 
     private func applyPlaybackState(_ state: RemotePlaybackState, stopsLocalAudio: Bool) {
-        if stopsLocalAudio {
+        if stopsLocalAudio, audioPlayer != nil {
             audioPlayer?.stop()
             audioPlayer = nil
             audioQueueUpdateTask?.cancel()
@@ -1446,20 +1490,22 @@ final class MacPlayerViewModel: ObservableObject {
             resetSpectrum()
         }
 
-        let tracksByID = Dictionary(uniqueKeysWithValues: catalog.map { (remotePlaybackID(for: $0), $0) })
-        let remoteQueue = state.queueTrackIDs.compactMap { tracksByID[$0.lowercased()] }
-        let remoteTrack = state.trackID.flatMap { tracksByID[$0.lowercased()] }
+        let remoteQueue = state.queueTrackIDs.compactMap { tracksByPlaybackID[$0.lowercased()] }
+        let remoteTrack = state.trackID.flatMap { tracksByPlaybackID[$0.lowercased()] }
             ?? remoteQueue.first
 
         isApplyingPlaybackSync = true
-        queue = remoteQueue
-        orderedQueue = remoteQueue
-        manuallyQueuedTrackIDs.removeAll()
-        currentTrack = remoteTrack
-        isPlaying = state.isPlaying
-        isShuffleEnabled = state.isShuffleEnabled
-        repeatMode = RepeatMode(rawValue: state.repeatMode) ?? .off
-        volume = state.volume
+        if queue != remoteQueue {
+            queue = remoteQueue
+            orderedQueue = remoteQueue
+            manuallyQueuedTrackIDs.removeAll()
+        }
+        if currentTrack != remoteTrack { currentTrack = remoteTrack }
+        if isPlaying != state.isPlaying { isPlaying = state.isPlaying }
+        if isShuffleEnabled != state.isShuffleEnabled { isShuffleEnabled = state.isShuffleEnabled }
+        let syncedRepeatMode = RepeatMode(rawValue: state.repeatMode) ?? .off
+        if repeatMode != syncedRepeatMode { repeatMode = syncedRepeatMode }
+        if volume != state.volume { volume = state.volume }
 
         let age = state.updatedAt.map { max(Date().timeIntervalSince1970 - $0, 0) } ?? 0
         let projectedElapsed = state.elapsed + (state.isPlaying ? min(age, 3) : 0)

@@ -33,7 +33,7 @@ private struct RetainedLibraryPage<Content: View>: View {
 }
 
 struct ArtistNameLink: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @State private var isHovering = false
     @State private var prefetchTask: Task<Void, Never>?
 
@@ -70,7 +70,7 @@ struct ArtistNameLink: View {
 }
 
 struct ContentView: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @State private var selectedDestination: MacSidebarDestination = .player
     @State private var selectedAlbumID: String?
     @State private var selectedArtistName: String?
@@ -80,6 +80,8 @@ struct ContentView: View {
     @State private var isDownloadSheetPresented = false
     @State private var isSidebarVisible = true
     @State private var playerBarHeight: CGFloat = 96
+    @State private var playbackWindowID = UUID()
+    @State private var isPlaybackWindowVisible = false
 
     private var isShowingPlayer: Bool {
         selectedDestination == .player && selectedArtistName == nil
@@ -115,6 +117,14 @@ struct ContentView: View {
             }
         }
         .background(Color.ariaBackground)
+        .background {
+            PlaybackWindowVisibilityReader { visible in
+                isPlaybackWindowVisible = visible
+                player.setPlaybackWindowVisible(visible, id: playbackWindowID)
+            }
+        }
+        .environment(\.isPlaybackWindowVisible, isPlaybackWindowVisible)
+        .onDisappear { player.setPlaybackWindowVisible(false, id: playbackWindowID) }
         .animation(.easeInOut(duration: 0.2), value: isSidebarVisible)
         .preferredColorScheme(.dark)
         .sheet(
@@ -129,12 +139,12 @@ struct ContentView: View {
         ) {
             if let session = player.metadataEditorSession {
                 MetadataEditorSheet(session: session)
-                    .environmentObject(player)
+                    .environment(player)
             }
         }
         .sheet(isPresented: $isDownloadSheetPresented) {
             DownloadMusicSheet()
-                .environmentObject(player)
+                .environment(player)
         }
         .onPreferenceChange(PlayerBarHeightPreferenceKey.self) { height in
             playerBarHeight = height
@@ -215,10 +225,7 @@ struct ContentView: View {
     }
 
     private var floatingAudioVisualizer: some View {
-        AudioVisualizer(
-            levels: player.spectrumLevels,
-            hasTrack: player.currentTrack != nil
-        )
+        PlaybackAudioVisualizer()
         .frame(height: 85)
         .padding(.horizontal, 14)
         .padding(.bottom, playerBarHeight + 6)
@@ -729,7 +736,7 @@ struct SidebarPlaylistRow: View {
 }
 
 struct SongsView: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     let tracks: [Track]
     let isSearching: Bool
@@ -770,7 +777,7 @@ struct SongsView: View {
 }
 
 struct ArtistPageView: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @State private var artistProfile: YouTubeMusicArtistResult?
     @State private var availableAlbums: [YouTubeMusicAlbumResult] = []
     @State private var isLoading = true
@@ -1130,7 +1137,7 @@ private enum MacAlbumSortMode: String, CaseIterable, Identifiable {
 }
 
 struct MacAlbumDetailView: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @State private var confirmsAlbumDeletion = false
     @State private var isDeletingAlbum = false
     @State private var albumDeletionError: String?
@@ -1374,7 +1381,7 @@ struct MacAlbumDetailView: View {
 }
 
 struct PlaylistsView: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     let playlists: [AriaPlaylist]
 
     var body: some View {
@@ -1415,7 +1422,7 @@ struct PlaylistsView: View {
 }
 
 struct MacPlaylistDetailView: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     let playlist: AriaPlaylist
 
@@ -1496,7 +1503,8 @@ struct MacPlaylistDetailView: View {
 }
 
 struct QueueView: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
+    @StateObject private var dragState = QueueDragState()
 
     var body: some View {
         if player.currentTrack == nil && player.queue.isEmpty {
@@ -1542,7 +1550,12 @@ struct QueueView: View {
                                             showAlbum: showsAlbum,
                                             canRemoveFromQueue: true
                                         )
-                                        .queueReorderable(trackID: track.id, enabled: player.canMoveQueuedTrack(track.id))
+                                        .queueReorderable(
+                                            trackID: track.id,
+                                            enabled: player.canMoveQueuedTrack(track.id),
+                                            dragState: dragState,
+                                            spacing: 2
+                                        )
                                     }
                                 }
                             }
@@ -1557,7 +1570,7 @@ struct QueueView: View {
 }
 
 struct LibraryOverviewCard: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     let tracks: [Track]
     var title: String
@@ -1640,7 +1653,7 @@ struct LibraryOverviewCard: View {
 }
 
 struct NowPlayingPanel: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     let track: Track
 
@@ -1726,7 +1739,7 @@ struct TrackListHeader: View {
 }
 
 struct TrackRow: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @State private var isHovering = false
 
     let track: Track
@@ -1930,7 +1943,7 @@ struct TrackRow: View {
 }
 
 struct AlbumCard: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @State private var isHovering = false
 
     let album: AriaAlbum
@@ -2085,7 +2098,7 @@ private struct MacAlbumVinylRecord: View {
 }
 
 struct PlaylistCard: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     let playlist: AriaPlaylist
 
@@ -2162,7 +2175,7 @@ struct PlaylistArtworkView: View {
 }
 
 struct MetadataEditorSheet: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @ObservedObject var session: TrackMetadataEditorSession
     @Environment(\.dismiss) private var dismiss
 
@@ -2334,7 +2347,7 @@ struct MetadataEditorSheet: View {
 }
 
 struct DownloadMusicSheet: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     @Environment(\.dismiss) private var dismiss
     @State private var link = ""
     @State private var album = ""
@@ -2582,7 +2595,7 @@ struct DownloadMusicSheet: View {
 }
 
 struct YouTubeMusicAlbumResultRow: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     let result: YouTubeMusicAlbumResult
 
@@ -2663,7 +2676,7 @@ struct YouTubeMusicAlbumResultRow: View {
 }
 
 struct YouTubeMusicSongResultRow: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     let result: YouTubeMusicSongResult
 
     var body: some View {
@@ -2681,7 +2694,7 @@ struct YouTubeMusicSongResultRow: View {
 }
 
 struct YouTubeMusicPlaylistResultRow: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
     let result: YouTubeMusicPlaylistResult
 
     var body: some View {
@@ -2992,7 +3005,7 @@ struct InlineStatusBanner: View {
 }
 
 struct ServerErrorState: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     var message: String
 
@@ -3045,5 +3058,71 @@ private extension String {
         localizedLowercase
             .split(whereSeparator: { $0.isWhitespace })
             .map(String.init)
+    }
+}
+
+// Window occlusion matters even while music keeps playing in the background.
+private struct PlaybackWindowVisibilityKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var isPlaybackWindowVisible: Bool {
+        get { self[PlaybackWindowVisibilityKey.self] }
+        set { self[PlaybackWindowVisibilityKey.self] = newValue }
+    }
+}
+
+private struct PlaybackWindowVisibilityReader: NSViewRepresentable {
+    var onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> VisibilityView {
+        let view = VisibilityView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ view: VisibilityView, context: Context) {
+        view.onChange = onChange
+    }
+
+    final class VisibilityView: NSView {
+        var onChange: (Bool) -> Void = { _ in }
+        private var observers: [NSObjectProtocol] = []
+        private var lastVisibility: Bool?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers.removeAll()
+            if let window {
+                for name in [NSWindow.didChangeOcclusionStateNotification,
+                             NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification] {
+                    observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                        self?.reportVisibility()
+                    })
+                }
+                for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
+                    observers.append(NotificationCenter.default.addObserver(forName: name, object: NSApp, queue: .main) { [weak self] _ in
+                        self?.reportVisibility()
+                    })
+                }
+            }
+            reportVisibility()
+        }
+
+        private func reportVisibility() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let visible = self.window.map {
+                    $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) && !NSApp.isHidden
+                } ?? false
+                guard self.lastVisibility != visible else { return }
+                self.lastVisibility = visible
+                self.onChange(visible)
+            }
+        }
+
+        deinit { observers.forEach(NotificationCenter.default.removeObserver) }
     }
 }

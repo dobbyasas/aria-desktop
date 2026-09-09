@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MacPlaybackSessionMenu: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     var body: some View {
         Menu {
@@ -62,7 +62,7 @@ struct MacPlaybackSessionMenu: View {
 }
 
 struct PlayerBar: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     var body: some View {
         VStack(spacing: 0) {
@@ -280,7 +280,7 @@ struct PlayerBar: View {
             Image(systemName: player.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .foregroundStyle(Color.ariaTextSecondary)
 
-            Slider(value: $player.volume, in: 0...1)
+            Slider(value: Binding(get: { player.volume }, set: { player.volume = $0 }), in: 0...1)
                 .tint(Color.ariaAccent)
         }
         .help("Volume")
@@ -288,7 +288,7 @@ struct PlayerBar: View {
 }
 
 struct MacKaraokeLyricsView: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     let track: Track
     var showsChrome = true
@@ -546,6 +546,22 @@ struct MacKaraokeLyricsView: View {
     }
 }
 
+// Keep fast spectrum observation inside this leaf, away from the library and controls.
+struct PlaybackAudioVisualizer: View {
+    @Environment(MacPlayerViewModel.self) private var player
+    @Environment(\.isPlaybackWindowVisible) private var isWindowVisible
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spectrumViewID = UUID()
+
+    var body: some View {
+        AudioVisualizer(levels: player.spectrumLevels, hasTrack: player.currentTrack != nil)
+            .onChange(of: isWindowVisible && !reduceMotion, initial: true) { _, active in
+                player.setSpectrumViewActive(active, id: spectrumViewID)
+            }
+            .onDisappear { player.setSpectrumViewActive(false, id: spectrumViewID) }
+    }
+}
+
 struct AudioVisualizer: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
@@ -668,7 +684,7 @@ private struct SpectrumVector: VectorArithmetic {
 }
 
 struct InlinePlaybackError: View {
-    @EnvironmentObject private var player: MacPlayerViewModel
+    @Environment(MacPlayerViewModel.self) private var player
 
     var message: String
 

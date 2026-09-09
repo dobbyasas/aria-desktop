@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ImageIO
 
 actor AriaArtworkCache {
     static let shared = AriaArtworkCache()
@@ -7,37 +8,42 @@ actor AriaArtworkCache {
     private let cacheDuration: TimeInterval = 7 * 24 * 60 * 60
     private let cacheDirectory: URL
     private let fileManager = FileManager.default
-    private let memoryCache = NSCache<NSURL, NSImage>()
+    private let memoryCache = NSCache<NSString, NSImage>()
+    private var pendingImages: [String: Task<NSImage?, Never>] = [:]
+    private var pendingDownloads: [URL: Task<Data?, Never>] = [:]
 
     private init() {
         let cachesDirectory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         cacheDirectory = cachesDirectory.appendingPathComponent("AriaMacArtworkCache", isDirectory: true)
+        memoryCache.totalCostLimit = 24 * 1_024 * 1_024
+        memoryCache.countLimit = 256
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
 
-    func image(for url: URL) async -> NSImage? {
-        if let memoryImage = memoryCache.object(forKey: url as NSURL) {
-            return memoryImage
-        }
+    /// Share a few Retina-sized variants instead of retaining full-resolution covers for rows.
+    nonisolated static func pixelSize(for requestedSize: CGFloat) -> Int {
+        [96, 256, 512, 1_024].first { CGFloat($0) >= requestedSize } ?? 1_024
+    }
 
-        if let diskImage = cachedImage(for: url) {
-            memoryCache.setObject(diskImage, forKey: url as NSURL)
-            return diskImage
-        }
+    func image(for url: URL, maxPixelSize: Int = 512) async -> NSImage? {
+        let pixels = Self.pixelSize(for: CGFloat(maxPixelSize))
+        let key = "\(url.absoluteString)|\(pixels)"
+        if let image = memoryCache.object(forKey: key as NSString) { return image }
+        if let pending = pendingImages[key] { return await pending.value }
 
-        guard let downloadedImage = await downloadImage(from: url) else {
-            return nil
+        let task = Task { await loadImage(for: url, pixels: pixels) }
+        pendingImages[key] = task
+        let image = await task.value
+        pendingImages[key] = nil
+        if let image {
+            let cost = Int(image.size.width) * Int(image.size.height) * 4
+            memoryCache.setObject(image, forKey: key as NSString, cost: cost)
         }
-
-        memoryCache.setObject(downloadedImage, forKey: url as NSURL)
-        return downloadedImage
+        return image
     }
 
     func palette(for url: URL, symbolName: String) async -> ArtworkPalette? {
-        guard let image = await image(for: url) else {
-            return nil
-        }
-
+        guard let image = await image(for: url, maxPixelSize: 96) else { return nil }
         return image.ariaArtworkPalette(symbolName: symbolName)
     }
 
@@ -45,58 +51,58 @@ actor AriaArtworkCache {
         guard let files = try? fileManager.contentsOfDirectory(
             at: cacheDirectory,
             includingPropertiesForKeys: [.contentModificationDateKey]
-        ) else {
-            return
-        }
-
+        ) else { return }
         for fileURL in files where isExpired(fileURL) {
             try? fileManager.removeItem(at: fileURL)
         }
     }
 
-    private func cachedImage(for url: URL) -> NSImage? {
+    private func loadImage(for url: URL, pixels: Int) async -> NSImage? {
         let fileURL = cacheFileURL(for: url)
-        guard !isExpired(fileURL) else {
-            try? fileManager.removeItem(at: fileURL)
-            return nil
+        if isExpired(fileURL) { try? fileManager.removeItem(at: fileURL) }
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        if fileManager.fileExists(atPath: fileURL.path),
+           let source = CGImageSourceCreateWithURL(fileURL as CFURL, sourceOptions),
+           let image = Self.thumbnail(source, pixels: pixels) {
+            return image
         }
-
-        guard let data = try? Data(contentsOf: fileURL) else {
-            return nil
-        }
-
-        guard let image = NSImage(data: data) else {
-            try? fileManager.removeItem(at: fileURL)
-            return nil
-        }
-
-        return image
+        guard let data = await imageData(from: url),
+              let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        return Self.thumbnail(source, pixels: pixels)
     }
 
-    private func downloadImage(from url: URL) async -> NSImage? {
-        do {
-            var request = URLRequest(url: url)
-            request.cachePolicy = .returnCacheDataElseLoad
-            request.timeoutInterval = 15
+    private static func thumbnail(_ source: CGImageSource, pixels: Int) -> NSImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: pixels,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+    }
 
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            if let httpResponse = response as? HTTPURLResponse {
-                guard 200..<300 ~= httpResponse.statusCode else {
-                    return nil
-                }
-            }
-
-            guard let image = NSImage(data: data) else {
-                return nil
-            }
-
-            try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-            try? data.write(to: cacheFileURL(for: url), options: [.atomic])
-            return image
-        } catch {
-            return nil
+    private func imageData(from url: URL) async -> Data? {
+        // A row, record label and palette can request the same cover concurrently.
+        if let pending = pendingDownloads[url] { return await pending.value }
+        let task = Task<Data?, Never> {
+            do {
+                if url.isFileURL { return try Data(contentsOf: url) }
+                var request = URLRequest(url: url)
+                request.cachePolicy = .returnCacheDataElseLoad
+                request.timeoutInterval = 15
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let response = response as? HTTPURLResponse,
+                      (200..<300).contains(response.statusCode),
+                      CGImageSourceCreateWithData(data as CFData, nil) != nil else { return nil }
+                try? data.write(to: cacheFileURL(for: url), options: [.atomic])
+                return data
+            } catch { return nil }
         }
+        pendingDownloads[url] = task
+        let data = await task.value
+        pendingDownloads[url] = nil
+        return data
     }
 
     private func isExpired(_ fileURL: URL) -> Bool {
