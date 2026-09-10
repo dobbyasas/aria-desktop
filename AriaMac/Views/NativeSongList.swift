@@ -261,6 +261,12 @@ final class SongCellView: NSTableCellView {
     deinit { artworkTask?.cancel() }
 
     func configure(track: Track, index: Int, showAlbum: Bool, current: Bool, playing: Bool) {
+        // NSTableView reuses the view that was under the pointer for a different
+        // row while scrolling. Hover is visual state, so it must not travel with
+        // that reused view to its new song.
+        if self.track?.id != track.id {
+            hovering = false
+        }
         self.track = track
         self.index = index
         self.showAlbum = showAlbum
