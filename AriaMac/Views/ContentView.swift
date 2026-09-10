@@ -1117,6 +1117,8 @@ private enum MacAlbumSortMode: String, CaseIterable, Identifiable {
 
 struct MacAlbumDetailView: View {
     @Environment(MacPlayerViewModel.self) private var player
+    @Environment(\.displayScale) private var displayScale
+    @State private var rowArtwork: NSImage?
     @State private var confirmsAlbumDeletion = false
     @State private var isDeletingAlbum = false
     @State private var albumDeletionError: String?
@@ -1125,7 +1127,7 @@ struct MacAlbumDetailView: View {
     let onBack: () -> Void
 
     var body: some View {
-        NativeSongList(tracks: album.tracks, showAlbum: false) {
+        ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 Button {
                     onBack()
@@ -1156,8 +1158,23 @@ struct MacAlbumDetailView: View {
 
                     TrackListHeader(showAlbum: false)
 
+                    LazyVStack(spacing: 2) {
+                        ForEach(Array(album.tracks.enumerated()), id: \.element.id) { index, track in
+                            TrackRow(
+                                track: track,
+                                source: album.tracks,
+                                index: index + 1,
+                                showAlbum: false,
+                                sharedArtwork: album.artworkTrack.map {
+                                    ArtworkImage(track: $0, image: rowArtwork, size: 44, cornerRadius: 7)
+                                }
+                            )
+                        }
+                    }
                 }
                 .padding(12)
+                // Keep the detail header and list in one stable SwiftUI scroll
+                // hierarchy. Its shared thumbnail still avoids per-row artwork work.
                 .background(
                     Color.ariaSurface.opacity(0.72),
                     in: RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -1169,6 +1186,14 @@ struct MacAlbumDetailView: View {
             }
             .padding(.horizontal, 24)
             .padding(.top, 18)
+            .padding(.bottom, 24)
+        }
+        .task(id: "\(album.artworkTrack?.artworkURL?.absoluteString ?? "")|\(rowArtworkPixelSize)") {
+            rowArtwork = nil
+            guard let url = album.artworkTrack?.artworkURL else { return }
+            let image = await AriaArtworkCache.shared.image(for: url, maxPixelSize: rowArtworkPixelSize)
+            guard !Task.isCancelled else { return }
+            rowArtwork = image
         }
         .alert("Delete \(album.title)?", isPresented: $confirmsAlbumDeletion) {
             Button("Cancel", role: .cancel) {}
@@ -1189,6 +1214,10 @@ struct MacAlbumDetailView: View {
         } message: {
             Text(albumDeletionError ?? "Unknown error")
         }
+    }
+
+    private var rowArtworkPixelSize: Int {
+        AriaArtworkCache.pixelSize(for: 44 * displayScale)
     }
 
     private var albumHeader: some View {
