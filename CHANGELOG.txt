@@ -1,6 +1,12 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.22.3
+Created: 2026-09-10
+
+Fixed:
+- Replaced the Mac Songs page's scrolling row hierarchy with a reusable native table, keeping large libraries responsive while preserving playback, artist links, song actions, and artwork caching.
+
 Version 1.22.2
 Created: 2026-09-09
 
