@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5B0001192D00000000000001 /* QueueReordering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002202D00000000000001 /* QueueReordering.swift */; };
 		5B0001012D00000000000001 /* AriaMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002012D00000000000001 /* AriaMacApp.swift */; };
 		5B0001022D00000000000001 /* Track.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002022D00000000000001 /* Track.swift */; };
 		5B0001032D00000000000001 /* Playlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002032D00000000000001 /* Playlist.swift */; };
@@ -26,10 +25,10 @@
 		5B0001162D00000000000001 /* VinylPlayerGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002172D00000000000001 /* VinylPlayerGeometry.swift */; };
 		5B0001172D00000000000001 /* GaplessAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002182D00000000000001 /* GaplessAudioPlayer.swift */; };
 		5B0001182D00000000000001 /* GaplessAudioFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002192D00000000000001 /* GaplessAudioFiles.swift */; };
+		5B0001192D00000000000001 /* QueueReordering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002202D00000000000001 /* QueueReordering.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		5B0002202D00000000000001 /* QueueReordering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueReordering.swift; sourceTree = "<group>"; };
 		5B0000012D00000000000001 /* AriaMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AriaMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5B0002012D00000000000001 /* AriaMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AriaMacApp.swift; sourceTree = "<group>"; };
 		5B0002022D00000000000001 /* Track.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Track.swift; sourceTree = "<group>"; };
@@ -50,6 +49,7 @@
 		5B0002172D00000000000001 /* VinylPlayerGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VinylPlayerGeometry.swift; sourceTree = "<group>"; };
 		5B0002182D00000000000001 /* GaplessAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessAudioPlayer.swift; sourceTree = "<group>"; };
 		5B0002192D00000000000001 /* GaplessAudioFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessAudioFiles.swift; sourceTree = "<group>"; };
+		5B0002202D00000000000001 /* QueueReordering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueReordering.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -182,7 +182,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1700;
-				LastUpgradeCheck = 1700;
+				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					5B0005012D00000000000001 = {
 						CreatedOnToolsVersion = 16.0;
@@ -280,6 +280,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -301,7 +302,9 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = NO;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -340,6 +343,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -355,7 +359,9 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -367,6 +373,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -392,6 +399,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
