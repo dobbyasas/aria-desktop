@@ -26,6 +26,7 @@
 		5B0001172D00000000000001 /* GaplessAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002182D00000000000001 /* GaplessAudioPlayer.swift */; };
 		5B0001182D00000000000001 /* GaplessAudioFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002192D00000000000001 /* GaplessAudioFiles.swift */; };
 		5B0001192D00000000000001 /* QueueReordering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0002202D00000000000001 /* QueueReordering.swift */; };
+		5B00AA192D00000000000001 /* NativeSongList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B00AA202D00000000000001 /* NativeSongList.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,6 +51,7 @@
 		5B0002182D00000000000001 /* GaplessAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessAudioPlayer.swift; sourceTree = "<group>"; };
 		5B0002192D00000000000001 /* GaplessAudioFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GaplessAudioFiles.swift; sourceTree = "<group>"; };
 		5B0002202D00000000000001 /* QueueReordering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueReordering.swift; sourceTree = "<group>"; };
+		5B00AA202D00000000000001 /* NativeSongList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSongList.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -135,6 +137,7 @@
 		5B0004082D00000000000001 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				5B00AA202D00000000000001 /* NativeSongList.swift */,
 				5B0002202D00000000000001 /* QueueReordering.swift */,
 				5B0002072D00000000000001 /* ContentView.swift */,
 				5B0002082D00000000000001 /* ArtworkView.swift */,
@@ -223,6 +226,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5B00AA192D00000000000001 /* NativeSongList.swift in Sources */,
 				5B0001192D00000000000001 /* QueueReordering.swift in Sources */,
 				5B0001012D00000000000001 /* AriaMacApp.swift in Sources */,
 				5B0001022D00000000000001 /* Track.swift in Sources */,

@@ -747,23 +747,8 @@ struct SongsView: View {
             GeometryReader { proxy in
                 let showsAlbum = proxy.size.width >= 760
 
-                ScrollView {
-                    VStack(spacing: 0) {
-                        TrackListHeader(showAlbum: showsAlbum)
-
-                        LazyVStack(spacing: 2) {
-                            ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                                TrackRow(
-                                    track: track,
-                                    source: tracks,
-                                    index: index + 1,
-                                    showAlbum: showsAlbum
-                                )
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
+                NativeSongList(tracks: tracks, showAlbum: showsAlbum) {
+                    TrackListHeader(showAlbum: showsAlbum)
                 }
             }
         }
