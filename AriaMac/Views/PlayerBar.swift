@@ -66,6 +66,9 @@ struct PlayerBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            RadioPlaybackControls()
+                .padding(.horizontal, 22)
+                .background(Color.ariaSurface)
             if let playbackError = player.playbackErrorMessage {
                 InlinePlaybackError(message: playbackError)
             }
@@ -183,6 +186,7 @@ struct PlayerBar: View {
                 Image(systemName: "shuffle")
                     .foregroundStyle(player.isShuffleEnabled ? Color.ariaAccent : Color.ariaTextSecondary)
             }
+            .disabled(player.isRadioActive)
             .help(player.isShuffleEnabled ? "Turn shuffle off" : "Shuffle queue")
 
             Button {
@@ -219,9 +223,14 @@ struct PlayerBar: View {
                 Image(systemName: player.repeatMode.systemImage)
                     .foregroundStyle(player.repeatMode == .off ? Color.ariaTextSecondary : Color.ariaAccent)
             }
+            .disabled(player.isRadioActive)
             .help(player.repeatMode.title)
 
             Menu {
+                if let track = player.currentTrack, !player.isRadioActive {
+                    Button("Start Radio", systemImage: "antenna.radiowaves.left.and.right") { player.startRadio(track) }
+                        .disabled(player.isDeletingRadioDownloads)
+                }
                 Button(
                     player.isLyricsPresented ? "Hide Lyrics" : "Show Lyrics",
                     systemImage: "quote.bubble"
@@ -712,5 +721,101 @@ struct InlinePlaybackError: View {
         .padding(.horizontal, 22)
         .padding(.vertical, 8)
         .background(Color.orange.opacity(0.12))
+    }
+}
+
+/// Shared by the library player bar and the full-window vinyl player.
+struct RadioPlaybackControls: View {
+    @Environment(MacPlayerViewModel.self) private var player
+
+    var body: some View {
+        if player.isRadioActive || player.pendingRadioDeletionCount > 0 {
+            VStack(alignment: .leading, spacing: 6) {
+                if let title = player.radioTitle {
+                    HStack(spacing: 12) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .foregroundStyle(Color.ariaAccent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(player.radioStatusMessage ?? (player.isWaitingForRadioTrack ? "Waiting for the next song…" : "Songs picked for this radio"))
+                                .font(.caption).foregroundStyle(Color.ariaTextSecondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                        if player.isWaitingForRadioTrack, player.radioErrorMessage == nil {
+                            ProgressView().controlSize(.small)
+                        }
+                        Button("Remove song", systemImage: "trash") { player.removeCurrentSongFromRadio() }
+                            .disabled(player.currentTrack == nil || player.isWaitingForRadioTrack)
+                            .help("Skip, exclude from future radio, and delete this song's download from the shared server")
+                        Button("Stop radio") { player.stopRadio() }
+                            .help("Stop finding new songs; keep the prepared queue")
+                    }
+                    Text("Remove song skips it, excludes it from radio, and deletes its server download.")
+                        .font(.caption2).foregroundStyle(Color.ariaTextSecondary)
+                }
+                if let error = player.radioErrorMessage {
+                    HStack {
+                        Text(error).font(.caption).foregroundStyle(.orange)
+                        Spacer()
+                        Button("Retry radio") { player.retryRadio() }
+                    }
+                }
+                if player.pendingRadioDeletionCount > 0 {
+                    HStack {
+                        Text(player.radioDeletionError ?? "Deleting \(player.pendingRadioDeletionCount) skipped download(s)…")
+                            .font(.caption).foregroundStyle(Color.ariaTextSecondary)
+                        if player.radioDeletionError != nil {
+                            Button("Retry deletion") { player.retryRadioDeletions() }
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .padding(.vertical, 10)
+        }
+    }
+}
+
+struct RadioDownloadCleanupView: View {
+    @Environment(MacPlayerViewModel.self) private var player
+    @State private var showsConfirmation = false
+
+    var body: some View {
+        if player.radioDownloadCount > 0 || player.isDeletingRadioDownloads || player.radioCleanupError != nil || player.radioCleanupMessage != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Label("Radio downloads · \(player.radioDownloadCount)", systemImage: "antenna.radiowaves.left.and.right")
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Button { showsConfirmation = true } label: { Image(systemName: "trash") }
+                        .buttonStyle(.plain)
+                        .help("Delete all radio downloads")
+                        .accessibilityLabel("Delete all radio downloads")
+                        .disabled(player.isDeletingRadioDownloads)
+                }
+                if player.isDeletingRadioDownloads {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text("Waiting for downloads, then deleting…")
+                    }
+                }
+                if let error = player.radioCleanupError {
+                    Text(error).foregroundStyle(.orange)
+                    Button("Retry cleanup") { Task { await player.deleteAllRadioDownloads() } }
+                } else if let message = player.radioCleanupMessage {
+                    Text(message)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(Color.ariaTextSecondary)
+            .confirmationDialog("Delete all radio downloads?", isPresented: $showsConfirmation) {
+                Button("Delete all radio downloads", role: .destructive) {
+                    Task { await player.deleteAllRadioDownloads() }
+                }
+            } message: {
+                Text("Stops this radio and deletes every song downloaded by radio on the shared server, including songs downloaded from your iPhone. Songs already in your library before radio are kept. Playlist references to deleted songs are removed.")
+            }
+        }
     }
 }

@@ -101,6 +101,9 @@ struct NativeSongList<Header: View>: NSViewRepresentable {
             let menu = NSMenu()
             guard let player else { return menu }
             menu.addItem(SongMenuItem("Play") { [weak self] in self?.play(track) })
+            let radioItem = SongMenuItem("Start Radio") { player.startRadio(track) }
+            radioItem.isEnabled = !player.isDeletingRadioDownloads
+            menu.addItem(radioItem)
             menu.addItem(SongMenuItem("Play Next") { player.playNext(track) })
             menu.addItem(SongMenuItem("Add to Queue") { player.addToQueue(track) })
             let playlists = NSMenu()

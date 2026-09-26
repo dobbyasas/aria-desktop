@@ -3,6 +3,7 @@ import Foundation
 struct AriaServerClient {
     var baseURLs: [URL]
     var tracksPath: String
+    var session: URLSession = .shared
 
     init(
         baseURLs: [URL] = Self.defaultBaseURLs,
@@ -47,10 +48,6 @@ struct AriaServerClient {
             }
 
             offset += page.tracks.count
-        }
-
-        guard !tracks.isEmpty else {
-            throw AriaServerError.emptyCatalog
         }
 
         return uniqued(tracks)
@@ -258,10 +255,25 @@ struct AriaServerClient {
                 )
                 return try decodeDownloadJob(from: data)
             } catch {
+                if case AriaServerError.serverMessage(409, _) = error { throw error }
                 failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
             }
         }
 
+        throw AriaServerError.unreachable(failures)
+    }
+
+    func fetchActiveDownload() async throws -> AriaDownloadJob? {
+        struct Downloads: Decodable { var active: AriaDownloadJob? }
+        var failures: [String] = []
+        for baseURL in baseURLs {
+            do {
+                let (data, _) = try await sendRequest(to: downloadsEndpoint(baseURL: baseURL), method: "GET")
+                return try JSONDecoder().decode(Downloads.self, from: data).active
+            } catch {
+                failures.append(error.localizedDescription)
+            }
+        }
         throw AriaServerError.unreachable(failures)
     }
 
@@ -302,6 +314,35 @@ struct AriaServerClient {
                 return try JSONDecoder().decode(AlbumDeletionResult.self, from: data)
             } catch {
                 failures.append("\(baseURL.absoluteString): \(error.localizedDescription)")
+            }
+        }
+        throw AriaServerError.unreachable(failures)
+    }
+
+    func deleteTrack(_ track: Track) async throws {
+        var failures: [String] = []
+        for baseURL in baseURLs {
+            do {
+                let endpoint = trackEndpoint(for: track, baseURL: baseURL)
+                _ = try await sendRequest(to: endpoint, method: "DELETE")
+                return
+            } catch {
+                if case AriaServerError.serverMessage(409, _) = error { throw error }
+                failures.append(error.localizedDescription)
+            }
+        }
+        throw AriaServerError.unreachable(failures)
+    }
+
+    func deleteRadioDownloads() async throws -> RadioDownloadsDeletionResult {
+        var failures: [String] = []
+        for baseURL in baseURLs {
+            do {
+                let (data, _) = try await sendRequest(to: baseURL.appendingPathComponent("api/radio-downloads"), method: "DELETE")
+                return try JSONDecoder().decode(RadioDownloadsDeletionResult.self, from: data)
+            } catch {
+                if case AriaServerError.serverMessage(409, _) = error { throw error }
+                failures.append(error.localizedDescription)
             }
         }
         throw AriaServerError.unreachable(failures)
@@ -356,7 +397,7 @@ struct AriaServerClient {
             request.setValue("application/json", forHTTPHeaderField: "Accept")
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AriaServerError.invalidResponse
@@ -553,6 +594,7 @@ struct AriaDownloadRequest: Encodable {
     var albumArtist: String
     var year: String
     var kind: String = "album"
+    var source: String = "manual"
 }
 
 struct AriaDownloadJob: Decodable, Identifiable, Equatable {
@@ -565,6 +607,7 @@ struct AriaDownloadJob: Decodable, Identifiable, Equatable {
     var albumArtist: String
     var year: String
     var kind: String?
+    var trackID: UUID?
     var filesStarted: Int
     var newFiles: Int?
     var reusedFiles: Int?
@@ -743,6 +786,7 @@ private struct ServerTrackPayload: Decodable {
     var artworkURLString: String?
     var isExplicit: Bool
     var isStandalone: Bool
+    var isRadioDownload: Bool
     var artwork: ArtworkPalette?
 
     var identitySeed: String {
@@ -781,6 +825,7 @@ private struct ServerTrackPayload: Decodable {
 
         isExplicit = container.decodeLossyBool(forKeyNames: ["isExplicit", "explicit", "is_explicit"]) ?? false
         isStandalone = container.decodeLossyBool(forKeyNames: ["isStandalone", "standalone", "is_standalone"]) ?? false
+        isRadioDownload = container.decodeLossyBool(forKeyNames: ["isRadioDownload"]) ?? false
         artwork = container.decodeArtworkPalette()
     }
 
@@ -806,7 +851,8 @@ private struct ServerTrackPayload: Decodable {
             streamURL: resolvedStreamURL,
             artworkURL: resolvedArtworkURL,
             isExplicit: isExplicit,
-            isStandalone: isStandalone
+            isStandalone: isStandalone,
+            isRadioDownload: isRadioDownload
         )
     }
 
@@ -1092,4 +1138,10 @@ private extension String {
     var reversedString: String {
         String(reversed())
     }
+}
+
+struct RadioDownloadsDeletionResult: Decodable {
+    var deletedFiles: Int
+    var deletedTrackIDs: [UUID]
+    var updatedPlaylists: Int
 }

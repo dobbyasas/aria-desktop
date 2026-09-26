@@ -233,3 +233,38 @@ playback. The cache, embedded-cover, Observation, and queue regression tests pas
 the deferred menu was exercised with isolated playlist creation and membership
 checks. The Release project build passed before the final menu change, and all
 final view sources compiled and ran in the review/benchmark fixture.
+
+## Song radio
+
+Choose **Start Radio** in a library song's menu or a YouTube Music song search
+result. Aria plays the seed first, then follows YouTube Music's radio queue,
+preparing three upcoming songs. Existing library files are reused; missing songs
+are downloaded to the shared server and appear in the Mac download queue. The Mac
+keeps its gapless audio player, and normal downloads can share the download queue.
+Radio starts on this Mac; if it was controlling another device, it opens a separate
+playback session. Recommendations use YouTube Music's guest radio feed, so they
+need not match a signed-in account's personalized queue.
+
+**Remove song** in either player view skips immediately, excludes the song from
+future radio sessions on this Mac, and deletes its shared-server download and
+playlist references. Failed deletions remain queued across relaunches with a retry
+control. Starting radio explicitly from an excluded seed allows that seed again.
+**Stop radio** keeps the prepared queue and lets any accepted download finish.
+
+New radio downloads carry the server's persistent `isRadioDownload` flag, shared
+with the iPhone app. The sidebar's **Radio downloads** trash button deletes all
+flagged songs after confirmation, including downloads made from the iPhone. It
+waits for active downloads and preserves songs that were in the library before
+radio. This requires the matching radio-enabled song server.
+
+Run the mocked radio checks without downloading or deleting real songs:
+
+```sh
+xcrun swiftc -module-cache-path /tmp/aria-radio-module-cache -parse-as-library AriaMac/Services/*.swift AriaMac/Models/*.swift AriaMac/Support/*.swift AriaMac/ViewModels/MacPlayerViewModel.swift Tests/MacRadioTests.swift -o /tmp/aria-mac-radio-tests
+/tmp/aria-mac-radio-tests
+```
+
+`Tests/MacRadioPreview.swift` renders the real library and player views with a
+mocked catalog, no external network access and no audio. Compile it with all
+service, model, support, view-model and view sources, excluding the app entry
+point. It writes four PNG previews under `/tmp/aria-mac-radio-*.png`.
