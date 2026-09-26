@@ -1,6 +1,14 @@
 ARIA FOR MAC - VERSION HISTORY
 ==============================
 
+Version 1.23.0
+Created: 2026-09-26
+
+Added:
+- Song radio with automatic server downloads, using the Mac gapless player and download queue.
+- Quick skip, exclusion, and download deletion in both player views.
+- Shared radio-download flags and bulk cleanup across Mac and iPhone.
+
 Version 1.22.6
 Created: 2026-09-10
 

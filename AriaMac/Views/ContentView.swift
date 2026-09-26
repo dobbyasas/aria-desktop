@@ -287,6 +287,10 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 10)
 
+            RadioDownloadCleanupView()
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
+
             HStack {
                 Text("Playlists")
                     .font(.caption.weight(.semibold))
@@ -1758,7 +1762,7 @@ struct TrackRow: View {
                 if let playlistForPlayback {
                     player.play(track, from: playlistForPlayback)
                 } else {
-                    player.play(track, from: playableSource)
+                    player.play(track, from: playableSource, continuingRadio: canRemoveFromQueue && player.isRadioActive)
                 }
             } label: {
                 ZStack {
@@ -1858,12 +1862,17 @@ struct TrackRow: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .onTapGesture(count: 2) {
-            player.play(track, from: playableSource)
+            player.play(track, from: playableSource, continuingRadio: canRemoveFromQueue && player.isRadioActive)
         }
         .contextMenu {
             Button("Play") {
-                player.play(track, from: playableSource)
+                player.play(track, from: playableSource, continuingRadio: canRemoveFromQueue && player.isRadioActive)
             }
+
+            Button("Start Radio", systemImage: "antenna.radiowaves.left.and.right") {
+                player.startRadio(track)
+            }
+            .disabled(player.isDeletingRadioDownloads)
 
             Button("Play Next") {
                 player.playNext(track)
@@ -2666,6 +2675,7 @@ struct YouTubeMusicAlbumResultRow: View {
 }
 
 struct YouTubeMusicSongResultRow: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(MacPlayerViewModel.self) private var player
     let result: YouTubeMusicSongResult
 
@@ -2675,10 +2685,21 @@ struct YouTubeMusicSongResultRow: View {
             subtitle: result.artist,
             artistName: result.artist,
             artworkURL: result.artworkURL,
+            onStartRadio: {
+                player.startRadio(result)
+                dismiss()
+            },
             isDownloaded: player.isSongDownloaded(result),
             isQueued: player.downloadQueue.contains { $0.request.link == result.downloadLink && !$0.isFinished }
         ) {
             player.enqueueDownload(result)
+        }
+        .contextMenu {
+            Button("Start Radio", systemImage: "antenna.radiowaves.left.and.right") {
+                player.startRadio(result)
+                dismiss()
+            }
+            .disabled(player.isDeletingRadioDownloads)
         }
     }
 }
@@ -2701,10 +2722,12 @@ struct YouTubeMusicPlaylistResultRow: View {
 }
 
 private struct YouTubeMusicDownloadResultRow: View {
+    @Environment(MacPlayerViewModel.self) private var player
     let title: String
     let subtitle: String
     var artistName: String? = nil
     let artworkURL: URL?
+    var onStartRadio: (() -> Void)? = nil
     let isDownloaded: Bool
     let isQueued: Bool
     let onDownload: () -> Void
@@ -2742,6 +2765,18 @@ private struct YouTubeMusicDownloadResultRow: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 12)
+            if let onStartRadio {
+                Menu {
+                    Button("Start Radio", systemImage: "antenna.radiowaves.left.and.right", action: onStartRadio)
+                        .disabled(player.isDeletingRadioDownloads)
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Song actions")
+            }
             if isDownloaded {
                 Label("Downloaded", systemImage: "checkmark.circle.fill")
                     .font(.subheadline.weight(.medium))
@@ -3151,6 +3186,9 @@ private struct TrackActionMenu: NSViewRepresentable {
             guard let track, let player else { return }
             let menu = NSMenu()
             menu.autoenablesItems = false
+            let radioItem = ActionItem("Start Radio", symbol: "antenna.radiowaves.left.and.right") { player.startRadio(track) }
+            radioItem.isEnabled = !player.isDeletingRadioDownloads
+            menu.addItem(radioItem)
             menu.addItem(ActionItem("Play Next", symbol: "text.line.first.and.arrowtriangle.forward") { player.playNext(track) })
             menu.addItem(ActionItem("Add to Queue", symbol: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(track) })
             let playlists = NSMenu(title: "Add to Playlist")

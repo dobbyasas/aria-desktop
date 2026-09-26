@@ -15,6 +15,7 @@ struct Track: Identifiable, Hashable, Codable {
     var artworkURL: URL?
     var isExplicit: Bool
     var isStandalone: Bool?
+    var isRadioDownload: Bool?
 
     init(
         id: UUID = UUID(),
@@ -30,7 +31,8 @@ struct Track: Identifiable, Hashable, Codable {
         streamURL: URL? = nil,
         artworkURL: URL? = nil,
         isExplicit: Bool = false,
-        isStandalone: Bool = false
+        isStandalone: Bool = false,
+        isRadioDownload: Bool = false
     ) {
         self.id = id
         self.serverID = serverID
@@ -46,6 +48,7 @@ struct Track: Identifiable, Hashable, Codable {
         self.artworkURL = artworkURL
         self.isExplicit = isExplicit
         self.isStandalone = isStandalone
+        self.isRadioDownload = isRadioDownload
     }
 
     var hasPlayableStream: Bool {

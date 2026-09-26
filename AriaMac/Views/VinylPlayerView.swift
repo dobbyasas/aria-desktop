@@ -12,6 +12,8 @@ struct FullscreenPlayerView: View {
             background
 
             VStack(spacing: 0) {
+                RadioPlaybackControls()
+                    .padding(.horizontal, 24)
                 if let error = player.playbackErrorMessage {
                     InlinePlaybackError(message: error)
                 }
@@ -327,7 +329,7 @@ private struct VinylQueueRow: View {
     private var isCurrent: Bool { player.currentTrack?.id == track.id }
 
     var body: some View {
-        Button { player.play(track, from: player.queue) } label: {
+        Button { player.play(track, from: player.queue, continuingRadio: player.isRadioActive) } label: {
             HStack(spacing: 9) {
                 Group {
                     if isCurrent {
@@ -447,6 +449,7 @@ private struct VinylPlayerControls: View {
             control("shuffle", active: player.isShuffleEnabled, label: player.isShuffleEnabled ? "Turn shuffle off" : "Shuffle queue") {
                 player.toggleShuffle()
             }
+            .disabled(player.isRadioActive)
             Spacer(minLength: 8)
             control("backward.end.fill", label: "Previous track") { player.previous() }
                 .disabled(!player.canSkipToPreviousTrack)
@@ -460,7 +463,7 @@ private struct VinylPlayerControls: View {
                     .background(Color(hex: "D3E4D6"), in: Circle())
             }
             .buttonStyle(.plain)
-            .disabled(player.currentTrack == nil && player.queue.isEmpty)
+            .disabled(player.currentTrack == nil && player.queue.isEmpty && !player.isRadioActive)
             .help(player.isPlaying ? "Pause" : "Play")
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
             Spacer(minLength: 10)
@@ -470,11 +473,20 @@ private struct VinylPlayerControls: View {
             control(player.repeatMode.systemImage, active: player.repeatMode != .off, label: player.repeatMode.title) {
                 player.cycleRepeatMode()
             }
+            .disabled(player.isRadioActive)
         }
     }
 
     private var utilityControls: some View {
         HStack(spacing: 8) {
+            if let track = player.currentTrack, !player.isRadioActive {
+                Button { player.startRadio(track) } label: {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                }
+                .buttonStyle(.plain)
+                .help("Start Radio")
+                .disabled(player.isDeletingRadioDownloads)
+            }
             MacPlaybackSessionMenu()
             control("quote.bubble", active: showsLyrics, label: showsLyrics ? "Hide lyrics" : "Show lyrics") {
                 showsLyrics.toggle()
