@@ -255,7 +255,13 @@ New radio downloads carry the server's persistent `isRadioDownload` flag, shared
 with the iPhone app. The sidebar's **Radio downloads** trash button deletes all
 flagged songs after confirmation, including downloads made from the iPhone. It
 waits for active downloads and preserves songs that were in the library before
-radio. This requires the matching radio-enabled song server.
+radio. **Radio Downloads** in the sidebar lists only flagged songs, with Keep and
+Delete buttons and horizontal swipe actions. Keep clears the server flag and
+removes the song from this review list while preserving it in Songs and playlists.
+Delete removes the shared file and playlist references; unlike Remove song in
+the radio player, it does not exclude the song from future stations. Kept songs
+are protected from bulk radio cleanup on every device. This requires server 1.24.0
+or later.
 
 Run the mocked radio checks without downloading or deleting real songs:
 

@@ -5,6 +5,7 @@ private enum MacSidebarDestination: Hashable {
     case player
     case songs
     case albums
+    case radioDownloads
     case playlist(UUID)
 }
 
@@ -77,6 +78,7 @@ struct ContentView: View {
     @State private var artistReturnDestination: MacSidebarDestination?
     @State private var songSearchText = ""
     @State private var albumSearchText = ""
+    @State private var radioSearchText = ""
     @State private var isDownloadSheetPresented = false
     @State private var isSidebarVisible = true
     @State private var playerBarHeight: CGFloat = 96
@@ -271,6 +273,7 @@ struct ContentView: View {
                 sidebarNavigationButton(title: "Now Playing", systemImage: "play.fill", destination: .player)
                 sidebarNavigationButton(title: "Songs", systemImage: "music.note", destination: .songs)
                 sidebarNavigationButton(title: "Albums", systemImage: "square.stack", destination: .albums)
+                sidebarNavigationButton(title: "Radio Downloads", systemImage: "antenna.radiowaves.left.and.right", destination: .radioDownloads)
             }
             .padding(.horizontal, 10)
 
@@ -387,7 +390,7 @@ struct ContentView: View {
     }
 
     private func header(for destination: MacSidebarDestination) -> some View {
-        let searchText = destination == .songs ? $songSearchText : $albumSearchText
+        let searchText = destination == .radioDownloads ? $radioSearchText : (destination == .songs ? $songSearchText : $albumSearchText)
         let isSearching = !searchText.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         return HStack(alignment: .center, spacing: 18) {
@@ -407,13 +410,13 @@ struct ContentView: View {
 
             Spacer()
 
-            if destination == .songs || destination == .albums {
+            if destination == .songs || destination == .albums || destination == .radioDownloads {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(Color.ariaTextSecondary)
 
                     TextField(
-                        destination == .songs ? "Search songs or artists" : "Search albums or artists",
+                        destination == .albums ? "Search albums or artists" : "Search songs or artists",
                         text: searchText
                     )
                         .textFieldStyle(.plain)
@@ -487,6 +490,15 @@ struct ContentView: View {
                     header(for: .songs)
                     catalogPage {
                         SongsView(tracks: filteredSongs, isSearching: !songSearchText.isEmpty)
+                    }
+                }
+            }
+
+            RetainedLibraryPage(isActive: selectedDestination == .radioDownloads && selectedArtistName == nil) {
+                VStack(spacing: 0) {
+                    header(for: .radioDownloads)
+                    catalogPage {
+                        RadioDownloadsReviewView(searchText: radioSearchText)
                     }
                 }
             }
@@ -610,6 +622,8 @@ struct ContentView: View {
             return "Songs"
         case .albums:
             return "Albums"
+        case .radioDownloads:
+            return "Radio Downloads"
         case .playlist(let id):
             return player.playlists.first { $0.id == id }?.title ?? "Playlist"
         case .player:
@@ -623,6 +637,8 @@ struct ContentView: View {
             return "\(filteredSongs.count) songs"
         case .albums:
             return "\(filteredAlbums.count) albums"
+        case .radioDownloads:
+            return "\(player.radioDownloadCount) downloads to review"
         case .playlist(let id):
             return player.playlists.first { $0.id == id }?.subtitle ?? "Shared playlist"
         case .player:
@@ -3224,5 +3240,196 @@ private struct TrackActionMenu: NSViewRepresentable {
 
         required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         @objc private func invoke() { handler() }
+    }
+}
+
+private struct RadioDownloadsReviewView: View {
+    @Environment(MacPlayerViewModel.self) private var player
+    let searchText: String
+
+    private var tracks: [Track] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return player.radioDownloads.filter {
+            query.isEmpty || $0.title.localizedStandardContains(query)
+                || $0.artist.localizedStandardContains(query) || $0.album.localizedStandardContains(query)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                Text("Keep the songs you like in Songs, protected from radio cleanup. Swipe right to keep or left to delete, or use the buttons.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.ariaTextSecondary)
+                RadioDownloadCleanupView()
+                if let error = player.radioReviewError {
+                    Text(error).font(.subheadline).foregroundStyle(.orange)
+                }
+                if tracks.isEmpty {
+                    EmptyStateView(title: "No radio downloads", message: searchText.isEmpty ? "New songs downloaded by radio will appear here for review." : "No downloads match your search.", systemImage: "antenna.radiowaves.left.and.right")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 48)
+                } else {
+                    ForEach(tracks) { track in
+                        RadioDownloadReviewRow(track: track, source: tracks)
+                    }
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
+private struct RadioDownloadReviewRow: View {
+    @Environment(MacPlayerViewModel.self) private var player
+    @Environment(\.isEnabled) private var isViewEnabled
+    let track: Track
+    let source: [Track]
+    @State private var swipeOffset: CGFloat = 0
+    @State private var horizontalSwipe: Bool?
+
+    private var isBusy: Bool {
+        player.radioReviewTrackIDs.contains(track.id) || player.isDeletingRadioDownloads
+    }
+
+    var body: some View {
+        ZStack {
+            HStack {
+                Label("Keep", systemImage: "checkmark.circle.fill")
+                Spacer()
+                Label("Delete", systemImage: "trash.fill")
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .opacity(min(abs(swipeOffset) / 40, 1))
+            HStack(spacing: 12) {
+                TrackRow(track: track, source: source)
+                if isBusy {
+                    ProgressView().controlSize(.small)
+                        .help("Updating download; waiting for any active download to finish")
+                } else {
+                    Button("Keep", systemImage: "checkmark") { review(keep: true) }
+                        .help("Keep in Songs and protect from radio cleanup")
+                    Button("Delete", systemImage: "trash", role: .destructive) { review(keep: false) }
+                        .help("Delete this download from the shared server and playlists")
+                }
+            }
+            .padding(.trailing, 12)
+            .background(Color.ariaBackground)
+            .offset(x: swipeOffset)
+        }
+        .background(swipeOffset == 0 ? Color.clear : (swipeOffset > 0 ? Color.green : Color.red))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onChanged { value in
+                    guard !isBusy else { return }
+                    if horizontalSwipe == nil {
+                        horizontalSwipe = abs(value.translation.width) > abs(value.translation.height) * 1.5
+                    }
+                    guard horizontalSwipe == true else { return }
+                    swipeOffset = min(max(value.translation.width, -110), 110)
+                }
+                .onEnded { _ in
+                    let offset = swipeOffset
+                    horizontalSwipe = nil
+                    withAnimation(.easeOut(duration: 0.2)) { swipeOffset = 0 }
+                    guard !isBusy, abs(offset) >= 80 else { return }
+                    review(keep: offset > 0)
+                }
+        )
+        .background {
+            RadioReviewTrackpadGesture(isEnabled: !isBusy && isViewEnabled, onChange: { swipeOffset = $0 }) { offset in
+                withAnimation(.easeOut(duration: 0.2)) { swipeOffset = 0 }
+                if abs(offset) >= 80 { review(keep: offset > 0) }
+            }
+        }
+        .accessibilityAction(named: "Keep in Songs") { review(keep: true) }
+        .accessibilityAction(named: "Delete Download") { review(keep: false) }
+    }
+
+    private func review(keep: Bool) {
+        guard !isBusy else { return }
+        Task {
+            if keep { await player.keepRadioDownload(track) }
+            else { await player.deleteRadioDownload(track) }
+        }
+    }
+}
+
+// SwiftUI DragGesture handles a mouse drag; trackpad swipes arrive as scroll
+// events. Capture only a horizontal gesture over this row, leaving vertical
+// scrolling and events over other windows untouched.
+private struct RadioReviewTrackpadGesture: NSViewRepresentable {
+    let isEnabled: Bool
+    let onChange: (CGFloat) -> Void
+    let onEnd: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> GestureView { GestureView() }
+    func updateNSView(_ view: GestureView, context: Context) {
+        view.isEnabled = isEnabled
+        view.onChange = onChange
+        view.onEnd = onEnd
+    }
+    static func dismantleNSView(_ view: GestureView, coordinator: ()) { view.removeMonitor() }
+
+    final class GestureView: NSView {
+        var isEnabled = true
+        var onChange: (CGFloat) -> Void = { _ in }
+        var onEnd: (CGFloat) -> Void = { _ in }
+        private var monitor: Any?
+        private var horizontal: Bool?
+        private var distance: CGFloat = 0
+        private var suppressMomentum = false
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            removeMonitor()
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self else { return event }
+                return self.handle(event)
+            }
+        }
+
+        func removeMonitor() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        private func handle(_ event: NSEvent) -> NSEvent? {
+            guard isEnabled, let window, event.window === window, !isHiddenOrHasHiddenAncestor,
+                  event.hasPreciseScrollingDeltas else { return event }
+            if !event.momentumPhase.isEmpty {
+                return suppressMomentum ? nil : event
+            }
+            if event.phase.contains(.began) || event.phase.contains(.mayBegin) {
+                horizontal = nil
+                distance = 0
+                suppressMomentum = false
+            }
+            guard bounds.contains(convert(event.locationInWindow, from: nil)) || horizontal == true else { return event }
+            if event.phase.contains(.cancelled) {
+                if horizontal == true { onEnd(0) }
+                horizontal = nil
+                distance = 0
+                return event
+            }
+            if horizontal == nil, abs(event.scrollingDeltaX) + abs(event.scrollingDeltaY) > 0 {
+                horizontal = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 1.5
+            }
+            guard horizontal == true, !event.phase.isEmpty else { return event }
+            distance += event.scrollingDeltaX
+            onChange(min(max(distance, -110), 110))
+            if event.phase.contains(.ended) {
+                onEnd(distance)
+                horizontal = nil
+                distance = 0
+                suppressMomentum = true
+            }
+            return nil
+        }
     }
 }
