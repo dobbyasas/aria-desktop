@@ -48,6 +48,8 @@ final class MacRadioTests {
     private var deletedIDs: [String] = []
     private var deleteBusyCount = 0
     private var deleteFails = false
+    private var keepFails = false
+    private var keepBusyCount = 0
     private var failedDownloadTitles: Set<String> = []
     private var reusedTrackID: UUID?
     private var jobs: [String: Data] = [:]
@@ -160,6 +162,18 @@ final class MacRadioTests {
                     "state": ["queueTrackIDs": [], "elapsed": 0, "isPlaying": false,
                               "isShuffleEnabled": false, "repeatMode": "off", "volume": 0.5]
                 ]))
+            case ("POST", let path) where path.hasPrefix("/api/radio-downloads/") && path.hasSuffix("/keep"):
+                if keepFails { return (500, Data("{\"error\":\"Disk unavailable\"}".utf8)) }
+                if keepBusyCount > 0 {
+                    keepBusyCount -= 1
+                    return (409, Data("{\"error\":\"Download in progress\"}".utf8))
+                }
+                let id = String(path.split(separator: "/")[2])
+                guard let index = serverTracks.firstIndex(where: { $0.id.uuidString.lowercased() == id }) else {
+                    return (404, Data("{}".utf8))
+                }
+                serverTracks[index].isRadioDownload = false
+                return (200, Data("{}".utf8))
             case ("DELETE", let path):
                 if deleteFails { return (500, Data("{\"error\":\"Server unavailable\"}".utf8)) }
                 if activeJobID != nil { return (409, Data("{\"error\":\"Download in progress\"}".utf8)) }
@@ -472,6 +486,81 @@ final class MacRadioTests {
         expectNil(player.radioCleanupError)
     }
 
+    func testKeepProtectsFromCleanupAndPreservesPlayback() async throws {
+        var tracks = (0..<3).map(track)
+        tracks[0].isRadioDownload = true
+        tracks[1].isRadioDownload = true
+        let player = try await makePlayer(tracks: tracks, provider: RadioProvider([]))
+        player.play(tracks[0], from: tracks)
+        player.elapsed = 37
+        await player.keepRadioDownload(tracks[0])
+        expectNil(player.radioReviewError)
+        expectEqual(player.radioDownloads.map(\.id), [tracks[1].id])
+        expectEqual(player.currentTrack?.id, tracks[0].id)
+        expectEqual(player.currentTrack?.isRadioDownload, false)
+        expectEqual(player.elapsed, 37)
+        expectTrue(player.isPlaying)
+        expectEqual(player.queue.map(\.id), tracks.map(\.id))
+        await player.refreshCatalog()
+        await player.deleteAllRadioDownloads()
+        expectTrue(player.catalog.contains { $0.id == tracks[0].id })
+        expectTrue(player.catalog.contains { $0.id == tracks[2].id })
+        expectFalse(player.catalog.contains { $0.id == tracks[1].id })
+        expectTrue(player.isPlaying)
+    }
+
+    func testReviewFailureStaysVisibleAndCanBeRetried() async throws {
+        var item = track(0)
+        item.isRadioDownload = true
+        let player = try await makePlayer(tracks: [item], provider: RadioProvider([]))
+        keepFails = true
+        await player.keepRadioDownload(item)
+        expectNotNil(player.radioReviewError)
+        expectEqual(player.radioDownloadCount, 1)
+        expectTrue(player.radioReviewTrackIDs.isEmpty)
+        deleteFails = true
+        await player.deleteRadioDownload(item)
+        expectNotNil(player.radioReviewError)
+        expectEqual(player.radioDownloadCount, 1)
+        deleteFails = false
+        await player.deleteRadioDownload(item)
+        expectNil(player.radioReviewError)
+        expectTrue(player.catalog.isEmpty)
+        expectEqual(deletedIDs, [item.id.uuidString.lowercased()])
+    }
+
+    func testBusyKeepBlocksCleanupUntilProtected() async throws {
+        var item = track(0)
+        item.isRadioDownload = true
+        let player = try await makePlayer(tracks: [item], provider: RadioProvider([]))
+        keepBusyCount = 1
+        let keeping = Task { await player.keepRadioDownload(item) }
+        try await eventually { !player.radioReviewTrackIDs.isEmpty }
+        await player.deleteAllRadioDownloads()
+        expectEqual(bulkDeleteRequests, 0)
+        expectEqual(player.radioDownloadCount, 1)
+        await keeping.value
+        expectNil(player.radioReviewError)
+        expectEqual(player.radioDownloadCount, 0)
+        expectTrue(player.radioReviewTrackIDs.isEmpty)
+    }
+
+    func testReviewDeletingPlayingRadioSongAdvancesWithoutExcluding() async throws {
+        var tracks = (0..<6).map(track)
+        tracks[0].isRadioDownload = true
+        let player = try await makePlayer(tracks: tracks, provider: RadioProvider(tracks.map { song($0) }))
+        player.startRadio(tracks[0])
+        try await eventually { player.queue.count == 4 }
+        await player.deleteRadioDownload(tracks[0])
+        expectNil(player.radioReviewError)
+        expectEqual(player.currentTrack?.id, tracks[1].id)
+        expectTrue(player.isRadioActive)
+        expectTrue(player.isPlaying)
+        expectFalse(player.catalog.contains { $0.id == tracks[0].id })
+        expectFalse(player.queue.contains { $0.id == tracks[0].id })
+        expectFalse((defaults.stringArray(forKey: "aria.radio.excludedSongs") ?? []).contains(tracks[0].radioIdentity))
+    }
+
     func testRadioParserKeepsPrimaryOrderSkipsUnavailableAndReadsContinuation() throws {
         func renderer(_ id: String, _ title: String) -> [String: Any] {
             ["playlistPanelVideoRenderer": ["videoId": id, "title": ["runs": [["text": title]]],
@@ -553,6 +642,34 @@ struct MacRadioTestRunner {
         setbuf(stdout, nil)
         let originalSession = UserDefaults.standard.object(forKey: "aria.playback.sessionID")
         defer { UserDefaults.standard.set(originalSession, forKey: "aria.playback.sessionID") }
+        do {
+            let test = MacRadioTests()
+            try await test.setUp()
+            try await test.testKeepProtectsFromCleanupAndPreservesPlayback()
+            try await test.tearDown()
+            print("PASS: testKeepProtectsFromCleanupAndPreservesPlayback")
+        }
+        do {
+            let test = MacRadioTests()
+            try await test.setUp()
+            try await test.testReviewFailureStaysVisibleAndCanBeRetried()
+            try await test.tearDown()
+            print("PASS: testReviewFailureStaysVisibleAndCanBeRetried")
+        }
+        do {
+            let test = MacRadioTests()
+            try await test.setUp()
+            try await test.testBusyKeepBlocksCleanupUntilProtected()
+            try await test.tearDown()
+            print("PASS: testBusyKeepBlocksCleanupUntilProtected")
+        }
+        do {
+            let test = MacRadioTests()
+            try await test.setUp()
+            try await test.testReviewDeletingPlayingRadioSongAdvancesWithoutExcluding()
+            try await test.tearDown()
+            print("PASS: testReviewDeletingPlayingRadioSongAdvancesWithoutExcluding")
+        }
         do {
             let test = MacRadioTests()
             try await test.setUp()

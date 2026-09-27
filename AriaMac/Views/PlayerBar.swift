@@ -792,7 +792,7 @@ struct RadioDownloadCleanupView: View {
                         .buttonStyle(.plain)
                         .help("Delete all radio downloads")
                         .accessibilityLabel("Delete all radio downloads")
-                        .disabled(player.isDeletingRadioDownloads)
+                        .disabled(player.isDeletingRadioDownloads || !player.radioReviewTrackIDs.isEmpty || player.radioDownloadCount == 0)
                 }
                 if player.isDeletingRadioDownloads {
                     HStack(spacing: 6) {
@@ -814,7 +814,7 @@ struct RadioDownloadCleanupView: View {
                     Task { await player.deleteAllRadioDownloads() }
                 }
             } message: {
-                Text("Stops this radio and deletes every song downloaded by radio on the shared server, including songs downloaded from your iPhone. Songs already in your library before radio are kept. Playlist references to deleted songs are removed.")
+                Text("Stops this radio and deletes every song downloaded by radio on the shared server, including songs downloaded from your iPhone. Songs you keep and songs already in your library before radio are preserved. Playlist references to deleted songs are removed.")
             }
         }
     }

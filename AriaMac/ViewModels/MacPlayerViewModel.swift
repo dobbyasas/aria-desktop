@@ -210,6 +210,8 @@ final class MacPlayerViewModel {
     private(set) var pendingRadioDeletionCount = 0
     private(set) var isDeletingRadioDownloads = false
     private(set) var radioCleanupError: String?
+    private(set) var radioReviewTrackIDs: Set<UUID> = []
+    private(set) var radioReviewError: String?
     private(set) var radioCleanupMessage: String?
     @ObservationIgnored private let radioClient: any SongRadioProviding
     @ObservationIgnored private let radioDefaults: UserDefaults
@@ -361,10 +363,81 @@ final class MacPlayerViewModel {
     }
 
     var isRadioActive: Bool { radioTitle != nil }
-    var radioDownloadCount: Int { catalog.filter { $0.isRadioDownload == true }.count }
+    var radioDownloads: [Track] { catalog.filter { $0.isRadioDownload == true } }
+    var radioDownloadCount: Int { radioDownloads.count }
+
+    func keepRadioDownload(_ track: Track) async {
+        await reviewRadioDownload(track, keep: true)
+    }
+
+    func deleteRadioDownload(_ track: Track) async {
+        await reviewRadioDownload(track, keep: false)
+    }
+
+    private func reviewRadioDownload(_ track: Track, keep: Bool) async {
+        guard !isDeletingRadioDownloads, !radioReviewTrackIDs.contains(track.id),
+              catalog.contains(where: { $0.id == track.id && $0.isRadioDownload == true }) else { return }
+        guard !pendingRadioDeletions.contains(where: { $0.id == track.id }) else {
+            radioReviewError = "This song is already waiting to be deleted after being removed from radio."
+            return
+        }
+        radioReviewTrackIDs.insert(track.id)
+        radioReviewError = nil
+        defer { radioReviewTrackIDs.remove(track.id) }
+        let deadline = Date().addingTimeInterval(15 * 60)
+        do {
+            while true {
+                try Task.checkCancellation()
+                do {
+                    if keep {
+                        try await serverClient.keepRadioDownload(track)
+                    } else {
+                        try await serverClient.deleteTrack(track)
+                    }
+                    break
+                } catch AriaServerError.serverMessage(409, _) {
+                    guard Date() < deadline else {
+                        throw AriaServerError.serverMessage(409, "The server is still downloading. Try this action again when it finishes.")
+                    }
+                    try await Task.sleep(for: .seconds(2))
+                }
+            }
+            // Do not remove the review row or promise protection until the server
+            // confirms the change. Updating metadata preserves the playing queue.
+            if keep {
+                replaceCatalog(with: catalog.map { item in
+                    var updated = item
+                    if item.id == track.id { updated.isRadioDownload = false }
+                    return updated
+                })
+            } else {
+                if isRadioActive, currentTrack?.id == track.id {
+                    let upcoming = upNext.filter { $0.id != track.id }
+                    audioPlayer?.stop()
+                    stopTimer()
+                    queue = upcoming
+                    orderedQueue = upcoming
+                    currentTrack = nil
+                    elapsed = 0
+                    isWaitingForRadioTrack = true
+                }
+                for index in playlists.indices {
+                    playlists[index].tracks.removeAll { $0.id == track.id }
+                }
+                replaceCatalog(with: catalog.filter { $0.id != track.id })
+                if isRadioActive {
+                    playPreparedRadioTrackIfNeeded()
+                    refillRadio()
+                }
+            }
+            radioCleanupMessage = keep ? "Kept \(track.title)." : "Deleted \(track.title)."
+        } catch {
+            radioReviewError = "Could not \(keep ? "keep" : "delete") \(track.title). \(error.localizedDescription)"
+        }
+    }
 
     func deleteAllRadioDownloads() async {
-        guard !isDeletingRadioDownloads else { return }
+        guard !isDeletingRadioDownloads, radioReviewTrackIDs.isEmpty else { return }
         isDeletingRadioDownloads = true
         radioCleanupError = nil
         radioCleanupMessage = nil
